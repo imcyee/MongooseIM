@@ -57,23 +57,6 @@ commands:
       - run:
           name: Wait for port << parameters.port >>
           command: dockerize -wait tcp://localhost:<< parameters.port >> -timeout 60s
-  maybe_prepare_minio:
-    steps:
-      - run:
-          name: Install minio client, prepare minio
-          environment:
-            - MINIO_HOSTNAME: "mongooseim-minio"
-            - MINIO_ACCESS_KEY: "AKIAIAOAONIULXQGMOUA"
-            - MINIO_SECRET_KEY: "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"
-            - MINIO_BUCKET: "mybucket"
-          command: |
-            if [[ "$DB" == *minio* ]]; then
-                curl -sSL https://dl.minio.io/client/mc/release/linux-amd64/mc -o ./mc
-                chmod +x ./mc
-                ./mc config host add ${MINIO_HOSTNAME} http://127.0.0.1:9000 ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY}
-                ./mc mb ${MINIO_HOSTNAME}/${MINIO_BUCKET}
-                ./mc policy set download "${MINIO_HOSTNAME}/${MINIO_BUCKET}"
-            fi
   maybe_build_deps_and_cache:
     steps:
       - run:
@@ -124,6 +107,44 @@ commands:
           root: ~/app/
           paths: ["*"]
 
+  prepare_databases:
+    parameters:
+      preset:
+        type: enum
+        enum: [internal_mnesia, mysql_redis, odbc_mssql_mnesia, ldap_mnesia,
+               elasticsearch_and_cassandra_mnesia, pgsql_mnesia, riak_mnesia]
+        description: Preset to run
+        default: internal_mnesia
+    steps:
+      - when:
+          condition: {equal: [ internal_mnesia, << parameters.preset >> ]}
+          steps:
+            - install_dockerize
+            - dockerize_wait: {port: 6379} # Wait for redis
+            - dockerize_wait: {port: 5672} # Wait for rmq
+            - run:
+                name: Install minio client, prepare minio
+                environment:
+                  - MINIO_HOSTNAME: "mongooseim-minio"
+                  - MINIO_ACCESS_KEY: "AKIAIAOAONIULXQGMOUA"
+                  - MINIO_SECRET_KEY: "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"
+                  - MINIO_BUCKET: "mybucket"
+                command: |
+                  curl -sSL https://dl.minio.io/client/mc/release/linux-amd64/mc -o ./mc
+                  chmod +x ./mc
+                  ./mc config host add ${MINIO_HOSTNAME} http://127.0.0.1:9000 ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY}
+                  ./mc mb ${MINIO_HOSTNAME}/${MINIO_BUCKET}
+                  ./mc policy set download "${MINIO_HOSTNAME}/${MINIO_BUCKET}"
+      - when:
+          condition: {not: {equal: [ internal_mnesia, << parameters.preset >> ] }}
+          steps:
+            - run:
+                name: Setup database
+                command: |
+                  tools/circleci-setup-db.sh
+                  # if [ $PRESET = ldap_mnesia ]; then sudo tools/travis-setup-ldap.sh; fi
+                  # sudo tools/travis-setup-rmq.sh; tools/setup-redis.sh
+
 references:
   - &OTP23 cimg/elixir:1.11  # Contains Erlang 23.1
   - &OTP22 cimg/elixir:1.10  # Contains Erlang 22.3.4
@@ -131,17 +152,17 @@ references:
 
 executors:
   # With REDIS
-  otp_23_redis:
+  otp_23_redis_rmq_minio:
     working_directory: ~/app
     docker:
       - image: *OTP23
       - image: circleci/redis:6.0.5
+      - image: rabbitmq:3.7-alpine
       - image: minio/minio:latest
         environment:
           - MINIO_ACCESS_KEY: "AKIAIAOAONIULXQGMOUA"
           - MINIO_SECRET_KEY: "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"
         command: ["server", "/data"]
-      - image: rabbitmq:3.7-alpine
   otp_22_redis:
     working_directory: ~/app
     docker:
@@ -260,16 +281,13 @@ jobs:
       REDIS_VERSION: 3.2.10
     steps:
       - restore_workspace
-      - install_dockerize
-      - dockerize_wait: {port: 6379} # Wait for redis
-      - dockerize_wait: {port: 5672} # Wait for rmq
-      - maybe_prepare_minio
       - run:
           name: Prepare /etc/hosts
           command: |
             echo '127.0.0.1 muc.localhost' | sudo tee -a /etc/hosts
             echo '127.0.0.1 localhost.bis' | sudo tee -a /etc/hosts
             echo '127.0.0.1 localhost' | sudo tee -a /etc/hosts
+      - prepare_databases: {preset: << parameters.preset >>}
       - run:
           name: Run Big Tests
           command: |
@@ -404,7 +422,7 @@ workflows:
       # ============= SMALL TESTS =============
       - small_tests:
           name: small_tests_23
-          executor: otp_23_redis
+          executor: otp_23_redis_rmq_minio
           context: mongooseim-org
           requires:
             - otp_23
@@ -423,11 +441,19 @@ workflows:
       # ============= MOST RECENT VERSION TESTS =============
       - big_tests:
           name: internal_mnesia
-          executor: otp_23_redis
+          executor: otp_23_redis_rmq_minio
           context: mongooseim-org
           preset: internal_mnesia
           db: "mnesia minio"
           tls_dist: true
+          requires:
+            - otp_23
+      - big_tests:
+          name: pgsql_mnesia
+          executor: otp_23
+          context: mongooseim-org
+          preset: pgsql_mnesia
+          db: pgsql
           requires:
             - otp_23
       # ============= DIALYZER =============
@@ -454,3 +480,4 @@ workflows:
             - dialyzer
             - build_and_deploy_docs
             - internal_mnesia
+            - pgsql_mnesia
