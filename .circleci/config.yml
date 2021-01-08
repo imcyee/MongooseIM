@@ -130,7 +130,9 @@ commands:
             - run:
                 name: Setup database
                 command: |
-                  tools/circleci-setup-db.sh
+                  sudo apt update
+                  sudo apt install postgresql-client-12
+                  # tools/circleci-setup-db.sh
                   # if [ $PRESET = ldap_mnesia ]; then sudo tools/travis-setup-ldap.sh; fi
                   # sudo tools/travis-setup-rmq.sh; tools/setup-redis.sh
 
@@ -152,6 +154,11 @@ executors:
           - MINIO_ACCESS_KEY: "AKIAIAOAONIULXQGMOUA"
           - MINIO_SECRET_KEY: "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"
         command: ["server", "/data"]
+      - image: circleci/postgres:12.5-ram
+        environment:
+          - PGDATA: /dev/shm/pgdata/data
+          - POSTGRES_PASSWORD: mongooseim_secret
+          - POSTGRES_USER: ejabberd
   otp_22_redis:
     working_directory: ~/app
     docker:
@@ -438,7 +445,7 @@ workflows:
             - otp_23
       - big_tests:
           name: pgsql_mnesia
-          executor: otp_23
+          executor: otp_23_redis_rmq_minio
           context: mongooseim-org
           preset: pgsql_mnesia
           db: pgsql
