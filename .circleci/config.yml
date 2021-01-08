@@ -41,16 +41,6 @@ commands:
             echo "Success!"
             ./rebar3 codecov analyze
             codecov --disable=gcov --env PRESET
-  install_dockerize:
-    steps:
-      - run:
-          name: Install dockerize
-          command: |
-            wget https://github.com/jwilder/dockerize/releases/download/$DOCKERIZE_VERSION/dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz
-            sudo tar -C /usr/local/bin -xzvf dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz
-            rm dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz
-          environment:
-            DOCKERIZE_VERSION: v0.6.1
   dockerize_wait:
     parameters: {port: {type: integer}}
     steps:
@@ -119,7 +109,6 @@ commands:
       - when:
           condition: {equal: [ internal_mnesia, << parameters.preset >> ]}
           steps:
-            - install_dockerize
             - dockerize_wait: {port: 6379} # Wait for redis
             - dockerize_wait: {port: 5672} # Wait for rmq
             - run:
@@ -228,7 +217,6 @@ jobs:
       PRESET: small_tests
     steps:
       - restore_workspace
-      - install_dockerize
       - dockerize_wait: {port: 6379}
       - run:
           name: Run Small Tests
