@@ -37,19 +37,65 @@ should_publish(Acc, #chat_event{to = To}, Services) ->
         true -> Services -- PublishedServices;
         false -> []
     end;
+% handle pubsub
+should_publish(Acc, #pubsub_event{to = To}, Services) ->
+    PublishedServices = mongoose_acc:get(event_pusher, published_services, [], Acc),
+    case should_publish(To) of
+        true -> Services -- PublishedServices;
+        false -> []
+    end;
 should_publish(_Acc, _Event, _Services) -> [].
 
 -spec prepare_notification(Acc :: mongooseim_acc:t(),
                            Event :: mod_event_pusher:event()) ->
                               mod_event_pusher_push_plugin:push_payload() | skip.
+% prepare_notification(Acc, _) -> 
+%     {From, To, Packet} = mongoose_acc:packet(Acc), 
+%     case exml_query:subelement(Packet, <<"body">>) of
+%         undefined ->  
+%             skip;
+%         Body -> 
+%             BodyCData = exml_query:cdata(Body), 
+%             MessageCount = get_unread_count(Acc, To), 
+%             SenderId = sender_id(From, Packet), 
+%             push_content_fields(SenderId, BodyCData, MessageCount)
+%     end.
+  
 prepare_notification(Acc, _) ->
+    ?LOG_INFO(#{what => prepare_notification_enter, acc => Acc}),
     {From, To, Packet} = mongoose_acc:packet(Acc),
+    ?LOG_INFO(#{what => prepare_notification, from => From, to => To, packet => Packet}),
+    Temp = exml_query:subelement(Packet, <<"body">>),
+ ?LOG_INFO(#{what => prepare_notification, temp => Temp}),
     case exml_query:subelement(Packet, <<"body">>) of
-        undefined -> skip;
+        undefined -> 
+            case  exml_query:path(Packet, [{element, <<"message">>},{element, <<"body">>}]) of
+                undefined ->  
+                    ?LOG_INFO(#{what => subemlemtn_empty}),
+                    skip;
+                Body ->
+
+                    ?LOG_INFO(#{what => body_okay, body => Body}),
+                    BodyCData = exml_query:cdata(Body),
+                    ?LOG_INFO(#{what => body_okay_1, body => BodyCData}),
+                    
+                    MessageCount = get_unread_count(Acc, To),
+                    ?LOG_INFO(#{what => body_okay_2}),
+                    SenderId = jid:to_binary(jid:to_lower(From)), % sender_id(From, Packet),
+ 
+           
+                    ?LOG_INFO(#{what => before_push_content_body_okay}),
+                    push_content_fields(SenderId, BodyCData, MessageCount)
+            end;
+           
         Body ->
+            ?LOG_INFO(#{what => body_okay, body => Body}),
             BodyCData = exml_query:cdata(Body),
+            ?LOG_INFO(#{what => body_okay_1, body => BodyCData}),
             MessageCount = get_unread_count(Acc, To),
+            ?LOG_INFO(#{what => body_okay_2}),
             SenderId = sender_id(From, Packet),
+            ?LOG_INFO(#{what => before_push_content_body_okay}),
             push_content_fields(SenderId, BodyCData, MessageCount)
     end.
 
@@ -59,14 +105,18 @@ prepare_notification(Acc, _) ->
                            Services :: [mod_event_pusher_push:publish_service()]) ->
                               mongooseim_acc:t().
 publish_notification(Acc, _, Payload, Services) ->
+    ?LOG_INFO(#{what => before_for_each}),
     To = mongoose_acc:to_jid(Acc),
     #jid{lserver = Host} = To,
     VirtualPubsubHosts = mod_event_pusher_push:virtual_pubsub_hosts(Host),
+     ?LOG_INFO(#{what => before_for_each}),
     lists:foreach(fun({PubsubJID, _Node, _Form} = Service) ->
                       case lists:member(PubsubJID#jid.lserver, VirtualPubsubHosts) of
                           true ->
+                                ?LOG_INFO(#{what => publish_via_hook}),
                               publish_via_hook(Acc, Host, To, Service, Payload);
                           false ->
+                                ?LOG_INFO(#{what => publish_via_pubsub}),
                               publish_via_pubsub(Host, To, Service, Payload)
                       end
                   end, Services),
@@ -108,6 +158,7 @@ sender_id(From, Packet) ->
 push_content_fields(_SenderId, <<"">>, _MessageCount) ->
     skip;
 push_content_fields(SenderId, BodyCData, MessageCount) ->
+    ?LOG_INFO(#{what => in_push_content_body_okay}),
     [
         {<<"message-count">>, integer_to_binary(MessageCount)},
         {<<"last-message-sender">>, SenderId},
@@ -138,6 +189,7 @@ publish_via_hook(Acc0, Host, To, {PubsubJID, Node, Form}, PushPayload) ->
                          PushPayload :: mod_event_pusher_push_plugin:push_payload()) ->
                             any().
 publish_via_pubsub(Host, To, {PubsubJID, Node, Form}, PushPayload) ->
+
     Stanza = push_notification_iq(Node, Form, PushPayload),
     Acc = mongoose_acc:new(#{ location => ?LOCATION,
                               lserver => To#jid.lserver,

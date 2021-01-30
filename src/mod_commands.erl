@@ -24,7 +24,8 @@
          get_recent_messages/3,
          get_recent_messages/4,
          send_message/3,
-         send_stanza/1
+         send_stanza/1,
+         notify_user/3
         ]).
 
 -export([parse_from_to/2]).
@@ -32,6 +33,7 @@
 -include("mongoose.hrl").
 -include("jlib.hrl").
 -include("mongoose_rsm.hrl").
+-include("mod_event_pusher_events.hrl").
 
 start() ->
     mongoose_commands:register(commands()).
@@ -233,6 +235,17 @@ commands() ->
       {security_policy, [user]},
       {identifiers, [host, user]},
       {args, [{host, binary}, {user, binary}, {newpass, binary}]},
+      {result, ok}
+     ],
+     [
+      {name, notify_user},
+      {category, <<"commands">>}, % start of uri: eg /commands/{identifier}
+      {desc, <<"Notify user">>},
+      {module, ?MODULE},
+      {function, notify_user},
+      {action, create}, 
+      {identifiers, [host, user]},
+      {args, [{host, binary}, {user, binary}, {password, binary}]},
       {result, ok}
      ]
     ].
@@ -549,3 +562,38 @@ parse_jid(Jid) when is_binary(Jid) ->
         error -> {error, io_lib:format("Invalid jid: ~p", [Jid])};
         B -> B
     end.
+
+-spec notify_user(Host :: jid:server(),
+                User :: jid:user(),
+               Password :: binary()) -> {'cannot_register', io_lib:chars()}
+                                      | {'exists', io_lib:chars()}
+                                      | {'ok', io_lib:chars()}.
+notify_user(Host, User,  Password) -> 
+    From =  jid:make(User, Host, <<>>),
+    To =  jid:make(User, Host, <<>>),
+
+    Packet = #xmlel{name = <<"message">>, 
+        attrs = [{<<"type">>, <<"chat">>}],
+         children =[
+            #xmlel{name = <<"body">>, children = [
+                #xmlcdata{content = list_to_binary("some text message")}
+            ]} 
+        ]},
+
+% body="{xmlel,<<\"body\">>,[{<<\"xmlns\">>,<<\"http://jabber.org/protocol/pubsub\">>}],[{xmlel,<<\"value\">>,[],[{xmlcdata,<<\"some text message\">>}]}]}" 
+% =mod_event_pusher_push_plugin_defaults:prepare_notification/2:54 body="{xmlel,<<\"body\">>,[{<<\"xmlns\">>,<<\"http://jabber.org/protocol/pubsub\">>}],[{xmlel,<<\"value\">>,[],[{xmlcdata,\"some text message\"}]}]}" 
+% =mod_event_pusher_push_plugin_defaults:prepare_notification/2:56 body= 
+% at=mod_event_pusher_push_plugin_defaults:prepare_notification/2:54 body="{xmlel,<<\"body\">>,[],[{xmlcdata,<<\"a\">>}]}" 
+% at=mod_event_pusher_push_plugin_defaults:prepare_notification/2:56 body=a 
+     Event = #chat_event{type = chat, direction = out,
+                                      from = From, to = To, packet = Packet},
+
+    % Event = #pubsub_event{from = From,  to = To,  packet = Packet},
+ 
+
+    ?LOG_INFO(#{what => notify_user, event => Event, from => From, to => To}),    
+    Acc = mongoose_acc:new(#{ location => ?LOCATION, lserver => Host, from_jid => From ,to_jid => To, element => Packet }),
+   ?LOG_INFO(#{what => notify_user, event => Acc}),    
+    NewAcc = mod_event_pusher:push_event(Acc, Host, Event),
+    {ok}.
+   
