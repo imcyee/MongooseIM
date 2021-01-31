@@ -92,8 +92,7 @@ config_spec() ->
                          Options :: #{binary() => binary()}) ->
     ok | {error, Reason :: term()}.
 push_notifications(AccIn, Host, Notifications, Options) ->
-    ?LOG_DEBUG(#{what => push_notifications, notifications => Notifications,
-                 opts => Options, acc => AccIn}),
+    ?LOG_DEBUG(#{what => push_notifications_in_service, notifications => Notifications, opts => Options, acc => AccIn}),
 
     DeviceId = maps:get(<<"device_id">>, Options),
     ProtocolVersionOpt = gen_mod:get_module_opt(Host, ?MODULE, api_version, ?DEFAULT_API_VERSION),

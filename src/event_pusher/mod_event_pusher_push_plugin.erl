@@ -78,7 +78,6 @@ prepare_notification(Host, Acc, Event) ->
 publish_notification(_Host, Acc, _Event, _Payload, []) ->
     Acc;
 publish_notification(Host, Acc, Event, Payload, Services) ->
-    ?LOG_INFO(#{what => before_for_each_0}),
     PluginModule = plugin_module(Host, publish_notification, 4),
     PluginModule:publish_notification(Acc, Event, Payload, Services).
 

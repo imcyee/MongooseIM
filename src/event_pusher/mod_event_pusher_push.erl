@@ -130,19 +130,18 @@ config_spec() ->
 push_event(Acc, Host, Event = #chat_event{direction = out, to = To,
                                           type = Type}) when Type =:= groupchat;
                                                              Type =:= chat ->
-    ?LOG_INFO(#{what => push_event_1}),
+    ?LOG_INFO(#{what => push_event_chat}),
     BareRecipient = jid:to_bare(To),
     do_push_event(Acc, Host, Event, BareRecipient);
 
+% only for push_plugin_advance
 push_event(Acc, Host, Event = #unack_msg_event{to = To}) ->
-    ?LOG_INFO(#{what => push_event_2}),
     BareRecipient = jid:to_bare(To),
     do_push_event(Acc, Host, Event, BareRecipient);
 
 push_event(Acc, Host, Event = #pubsub_event{to = To}) ->
-    ?LOG_INFO(#{what => push_event_for_pubsub, to => To}),
+    ?LOG_INFO(#{what => push_event_pubsub, to => To}),
     BareRecipient = jid:to_bare(To),
-    ?LOG_INFO(#{what => push_event_for_pubsub, tp => BareRecipient}),
     do_push_event(Acc, Host, Event, BareRecipient);
 
 push_event(Acc, _, _) ->
@@ -218,18 +217,16 @@ expand_and_store_virtual_pubsub_hosts(Host, Opts) ->
 -spec do_push_event(mongoose_acc:t(), jid:server(), mod_event_pusher:event(), jid:jid()) ->
     mongoose_acc:t().
 do_push_event(Acc, Host, Event, BareRecipient) ->
-      ?LOG_INFO(#{what => do_push_event, tp => BareRecipient}),
+    ?LOG_INFO(#{what => do_push_event, tp => BareRecipient}),
     case mod_event_pusher_push_plugin:prepare_notification(Host, Acc, Event) of
         skip -> Acc;
         Payload ->
-              ?LOG_INFO(#{what => publish_notification}),
+            ?LOG_INFO(#{what => do_push_event}),
             {ok, Services} = mod_event_pusher_push_backend:get_publish_services(BareRecipient),
-               ?LOG_INFO(#{what => publish_notification_2, services => Services}),
-            FilteredService = mod_event_pusher_push_plugin:should_publish(Host, Acc, Event,
-                                                                          Services),
-            ?LOG_INFO(#{what => publish_notification_3, filtered => FilteredService }),
-            mod_event_pusher_push_plugin:publish_notification(Host, Acc, Event,
-                                                              Payload, FilteredService)
+            ?LOG_INFO(#{what => do_push_event_2, services => Services}),
+            FilteredService = mod_event_pusher_push_plugin:should_publish(Host, Acc, Event, Services),
+            ?LOG_INFO(#{what => do_push_event_3, filtered => FilteredService }),
+            mod_event_pusher_push_plugin:publish_notification(Host, Acc, Event, Payload, FilteredService)
     end.
 
 -spec parse_request(Request :: exml:element()) ->

@@ -71,9 +71,8 @@ filter_local_packet({From, To = #jid{lserver = Host},
 		       From :: jid:jid(), To :: jid:jid(),
 		       Packet :: exml:element()) -> mongoose_acc:t().
 
-user_send_packet(Acc, From, To,
-		 Packet = #xmlel{name = <<"message">>}) ->
-                   ?LOG_INFO(#{what => user_send_packet_message, packet => Packet}),
+user_send_packet(Acc, From, To, Packet = #xmlel{name = <<"message">>}) ->
+    ?LOG_INFO(#{what => user_send_packet_message, packet => Packet}),
     case chat_type(Acc) of
       false -> Acc;
       Type ->
@@ -83,10 +82,9 @@ user_send_packet(Acc, From, To,
                             From#jid.lserver, Event),
 	  merge_acc(Acc, NewAcc)
     end;
-user_send_packet(Acc, From, To,
-		 Packet = #xmlel{name = <<"iq">>,
-				 children = [#xmlel{name = <<"message">>}]}) -> 
-    case  exml_query:paths(Packet, [{element, <<"message">>}]) of
+
+user_send_packet(Acc, From, To, Packet = #xmlel{name = <<"iq">>, children = [#xmlel{name = <<"pubsub">>}]}) -> 
+    case exml_query:path(Packet, [{element, <<"pubsub">>}]) of
         undefined ->  
             Acc;
         Message ->
@@ -121,8 +119,7 @@ user_not_present(Acc, LUser, LHost, LResource,
     NewAcc = mod_event_pusher:push_event(Acc, LHost, Event),
     merge_acc(Acc, NewAcc).
 
-unacknowledged_message(Acc,
-		       #jid{lserver = Server} = Jid) ->
+unacknowledged_message(Acc, #jid{lserver = Server} = Jid) ->
     Event = #unack_msg_event{to = Jid},
     NewAcc = mod_event_pusher:push_event(Acc, Server,
 					 Event),
