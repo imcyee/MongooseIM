@@ -1,6 +1,7 @@
 # MongooseIM platform
 
-[![Build Status](https://travis-ci.org/esl/MongooseIM.svg?branch=master)](https://travis-ci.org/esl/MongooseIM)
+[![Build Status](https://github.com/esl/MongooseIM/workflows/CI/badge.svg)](https://github.com/esl/MongooseIM/actions)
+[![CircleCI](https://circleci.com/gh/esl/MongooseIM.svg?style=shield&circle-token=53cdda11cfb95bd7a7044c509c89cb73d3fdeb5a)](https://github.com/esl/MongooseIM/)
 [![codecov](https://codecov.io/gh/esl/MongooseIM/branch/master/graph/badge.svg)](https://codecov.io/gh/esl/MongooseIM)
 [![GitHub release](https://img.shields.io/github/release/esl/MongooseIM.svg)](https://github.com/esl/MongooseIM/releases)
 
@@ -48,18 +49,15 @@ For a quick start just download:
 
 Check out our test results:
 
-* Continuous integration: [https://travis-ci.org/esl/MongooseIM](https://travis-ci.org/esl/MongooseIM)
-* Code coverage: [https://coveralls.io/github/esl/MongooseIM](https://coveralls.io/github/esl/MongooseIM)
-* Continuous Load Testing: [https://tide.erlang-solutions.com/](https://tide.erlang-solutions.com/)
-* Load test history:
-  ![Load test history](https://tide.erlang-solutions.com/charts/bidaily_last_year.png)
-
+* Continuous integration: [Github actions](https://github.com/esl/MongooseIM/actions?query=workflow%3ACI)
+* Code coverage: [https://codecov.io/gh/esl/MongooseIM](https://codecov.io/gh/esl/MongooseIM)
 
 ## Documentation
 
 Up-to-date documentation for the MongooseIM master branch can be found on ReadTheDocs: [https://esl.github.io/MongooseDocs/latest/](https://esl.github.io/MongooseDocs/latest/).
 
 Latest releases:
+* [4.1.0](https://esl.github.io/MongooseDocs/4.1.0/)
 * [4.0.1](https://esl.github.io/MongooseDocs/4.0.1/)
 * [3.7.1](https://esl.github.io/MongooseDocs/3.7.1/)
 * [3.6.2](https://esl.github.io/MongooseDocs/3.6.2/)
@@ -91,8 +89,8 @@ When developing new features/modules, please make sure you add basic documentati
 
 Suggestions, questions, thoughts? Contact us directly:
 
-* Raise a [GitHub issue](https://github.com/esl/MongooseIM/issues): https://github.com/esl/MongooseIM/issues
+* Raise a [GitHub issue](https://github.com/esl/MongooseIM/issues)
 * Email us at <a href='mailto:mongoose-im@erlang-solutions.com'>mongoose-im@erlang-solutions.com</a>
-* Follow our [Twitter account](https://twitter.com/MongooseIM): [https://twitter.com/MongooseIM](https://twitter.com/MongooseIM)
-* Like our [Facebook page](https://www.facebook.com/MongooseIM/): [https://www.facebook.com/MongooseIM/](https://www.facebook.com/MongooseIM/)
-* Subscribe to our [mailing list](https://groups.google.com/d/forum/mongooseim-announce) at [https://groups.google.com/d/forum/mongooseim-announce](https://groups.google.com/d/forum/mongooseim-announce) to receive no more than two montly emails as well as access to the free and open archives.
+* Follow our [Twitter account](https://twitter.com/MongooseIM)
+* Like our [Facebook page](https://www.facebook.com/MongooseIM/)
+* Subscribe to our [mailing list](https://groups.google.com/d/forum/mongooseim-announce) to receive no more than two monthly emails as well as access to the free and open archives
