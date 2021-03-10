@@ -153,13 +153,9 @@ merge_acc(Acc, EventPusherAcc) ->
 		jid:server()) -> [ejabberd_hooks:hook()].
 
 hooks(Host) ->
-    [{filter_local_packet, Host, ?MODULE,
-      filter_local_packet, 90},
-     {unset_presence_hook, Host, ?MODULE, user_not_present,
-      90},
+    [{filter_local_packet, Host, ?MODULE, filter_local_packet, 90},
+     {unset_presence_hook, Host, ?MODULE, user_not_present, 90},
      {user_available_hook, Host, ?MODULE, user_present, 90},
      {user_send_packet, Host, ?MODULE, user_send_packet, 90},
-     {rest_user_send_packet, Host, ?MODULE, user_send_packet,
-      90},
-     {unacknowledged_message, Host, ?MODULE,
-      unacknowledged_message, 90}].
+     {rest_user_send_packet, Host, ?MODULE, user_send_packet, 90},
+     {unacknowledged_message, Host, ?MODULE, unacknowledged_message, 90}].

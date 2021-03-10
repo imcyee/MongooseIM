@@ -59,13 +59,14 @@ get_inbox(LUsername, LServer, Params) ->
 get_inbox_rdbms(LUser, LServer, #{ order := Order } = Params) ->
     OrderSQL = order_to_sql(Order),
     BeginSQL = sql_and_where_timestamp(">=", maps:get(start, Params, undefined)),
-    EndSQL = sql_and_where_timestamp("<=", maps:get('end', Params, undefined)),
+    EndSQL = sql_and_where_timestamp("<=", maps:get('end', Params, undefined)),  
+    LimitSQL = sql_limit(maps:get('max', Params, undefined)), 
     HiddenSQL = sql_and_where_unread_count(maps:get(hidden_read, Params, false)),
     Query = ["SELECT remote_bare_jid, content, unread_count, timestamp FROM inbox "
                  "WHERE luser=", esc_string(LUser),
                  " AND lserver=", esc_string(LServer),
                  BeginSQL, EndSQL, HiddenSQL,
-                 " ORDER BY timestamp ", OrderSQL, ";"],
+                 " ORDER BY timestamp ", OrderSQL, LimitSQL, ";"],       
     mongoose_rdbms:sql_query(LServer, Query).
 
 
@@ -204,6 +205,10 @@ sql_and_where_timestamp(_Operator, undefined) ->
 sql_and_where_timestamp(Operator, Timestamp) ->
     NumericTimestamp = usec:from_now(Timestamp),
     [" AND timestamp ", Operator, esc_int(NumericTimestamp)].
+ 
+-spec sql_limit(Max :: integer()) -> iolist().
+sql_limit(undefined) -> [];
+sql_limit(Max) -> [" LIMIT ", esc_int(Max)].
 
 -spec sql_and_where_unread_count(HiddenRead :: boolean()) -> iolist().
 sql_and_where_unread_count(true) ->

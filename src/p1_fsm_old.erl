@@ -135,7 +135,7 @@
          format_status/2]).
 
 -import(error_logger, [format/2]).
-
+-include("mongoose_logger.hrl").
 %%% Internal gen_fsm state
 %%% This state is used to defined resource control values:
 -record(limits, {max_queue}).
@@ -710,8 +710,11 @@ reply(Name, {To, Tag}, Reply, Debug, StateName) ->
 
 terminate(Reason, Name, Msg, Mod, StateName, StateData, Debug, Queue) ->
     List = queue:to_list(Queue),
+    ?LOG_INFO(#{what => terminating_end, reason => Reason }),
+    sys:print_log("terminating end of it"),
     case catch Mod:terminate(Reason, StateName, StateData, List) of
         {'EXIT', R} ->
+            sys:print_log("terminating end of EXIT"),
             error_info(Mod, R, Name, Msg, StateName, StateData, Debug),
             exit(R);
         _ ->
@@ -724,11 +727,14 @@ terminate(Reason, Name, Msg, Mod, StateName, StateData, Debug, Queue) ->
                     %% Priority shutdown should be considered as
                     %% shutdown by SASL
                     exit(shutdown);
+                {handover_session, _From} ->
+                    exit(normal);
                 {process_limit, _Limit} ->
                     exit(Reason);
                 {migrated, _Clone} ->
                     exit(normal);
                 _ ->
+                    ?LOG_INFO(#{what => terminating_end_badly, reason => Reason }), 
                     error_info(Mod, Reason, Name, Msg, StateName, StateData, Debug),
                     exit(Reason)
             end
@@ -758,7 +764,7 @@ error_info(Mod, Reason, Name, Msg, StateName, StateData, Debug) ->
     end,
     Str = "** State machine ~p terminating \n" ++
         get_msg_str(Msg) ++
-        "** When State == ~p~n"
+        "** When State is bad == ~p~n"
         "**      Data  == ~p~n"
         "** Reason for termination = ~n** ~p~n",
     format(Str, [Name, get_msg(Msg), StateName, StateToPrint, Reason1]),

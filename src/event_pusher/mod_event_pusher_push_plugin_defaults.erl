@@ -52,7 +52,7 @@ should_publish(_Acc, _Event, _Services) -> [].
 prepare_notification(Acc, Event = #pubsub_event{to = To}) ->  
     {From, To, Packet} = mongoose_acc:packet(Acc),
     ?LOG_INFO(#{what => prepare_notification, from => From, to => To, packet => Packet}), 
-    case  exml_query:path(Packet, [{element, <<"pubsub">>},{element, <<"body">>}]) of
+    case  exml_query:path(Packet, [{element, <<"pubsub">>},{element, <<"publish">>},{element, <<"item">>},{element, <<"entry">>},{element, <<"body">>}]) of
         undefined ->  
             ?LOG_INFO(#{what => prepare_notification_empty}),
             skip;

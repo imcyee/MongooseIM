@@ -1507,6 +1507,7 @@ print_state(State = #state{pres_t = T, pres_f = F, pres_a = A, pres_i = I}) ->
 %%----------------------------------------------------------------------
 -spec terminate(Reason :: any(), statename(), state(), list()) -> ok.
 terminate({handover_session, From}, StateName, StateData, UnreadMessages) ->
+     ?LOG_INFO(#{what => terminate_normal, statename => StateName , text => "terminate_A_2" }),
     % do handover first
     NewStateData = do_handover_session(StateData, UnreadMessages),
     p1_fsm_old:reply(From, {ok, NewStateData}),
@@ -1519,6 +1520,7 @@ terminate(_Reason, StateName, StateData, UnreadMessages) ->
               true -> mongoose_acc:set(stream_mgmt, h, StateData#state.stream_mgmt_in, InitialAcc0);
               _ -> InitialAcc0
           end,
+    ?LOG_INFO(#{what => terminate,  text => "terminate_A_2", reason => _Reason }),
     case {should_close_session(StateName), StateData#state.authenticated} of
         {false, _} ->
             ok;
@@ -1543,6 +1545,7 @@ terminate(_Reason, StateName, StateData, UnreadMessages) ->
             presence_broadcast(Acc1, StateData#state.pres_i, StateData),
             reroute_unacked_messages(StateData, UnreadMessages);
         {_, resumed} ->
+            ?LOG_INFO(#{what => terminate,  text => "terminate_B_1" }),
             StreamConflict = mongoose_xmpp_errors:stream_conflict(
                                StateData#state.lang, <<"Resumed by new connection">>),
             maybe_send_element_from_server_jid_safe(StateData, StreamConflict),
@@ -1578,8 +1581,9 @@ terminate(_Reason, StateName, StateData, UnreadMessages) ->
                     presence_broadcast(Acc1, StateData#state.pres_i, StateData)
             end,
             reroute_unacked_messages(StateData, UnreadMessages)
-    end,
+    end, 
     (StateData#state.sockmod):close(StateData#state.socket),
+    ?LOG_INFO(#{what => terminate,  text => "terminate_C_2" }),
     ok.
 
 -spec reroute_unacked_messages(StateData :: state(), list()) -> any().
@@ -3182,13 +3186,20 @@ stream_mgmt_resumed(SMID, Handled) ->
                     {<<"h">>, integer_to_binary(Handled)}]}.
 
 handover_session(SD, From)->
+    ?LOG_INFO(#{what => auth_success, text => "before true"}),
     true = SD#state.stream_mgmt,
+    ?LOG_INFO(#{what => auth_success, text => "before true1"}),
+
     Acc = mongoose_acc:new(
         #{location => ?LOCATION, lserver => SD#state.server, element => undefined}),
+    ?LOG_INFO(#{what => auth_success, text => "before true 2"}),
+
     ejabberd_sm:close_session(Acc,
                               SD#state.sid,
                               SD#state.jid,
                               resumed),
+    ?LOG_INFO(#{what => auth_success, text => "before true 3"}),
+
     %the actual handover to be done on termination
     {stop, {handover_session, From}, SD}.
 
