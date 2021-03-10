@@ -57,6 +57,7 @@
 -include("jlib.hrl").
 -include("pubsub.hrl").
 -include("mongoose_config_spec.hrl").
+-include("session.hrl").
 
 -define(STDTREE, <<"tree">>).
 -define(STDNODE, <<"flat">>).
@@ -178,8 +179,8 @@
 -type(pubsubItem() ::
         #pubsub_item{
            itemid       :: {ItemId::mod_pubsub:itemId(), Nidx::mod_pubsub:nodeIdx()},
-           creation     :: {erlang:timestamp(), jid:ljid()},
-           modification :: {erlang:timestamp(), jid:ljid()},
+           creation     :: {integer(), jid:ljid()},
+           modification :: {integer(), jid:ljid()},
            payload      :: mod_pubsub:payload()
           }
         ).
@@ -188,7 +189,7 @@
         #pubsub_last_item{
            nodeid   :: mod_pubsub:nodeIdx(),
            itemid   :: mod_pubsub:itemId(),
-           creation :: {erlang:timestamp(), jid:ljid()},
+           creation :: {integer(), jid:ljid()},
            payload  :: mod_pubsub:payload()
           }
         ).
@@ -3404,7 +3405,7 @@ presence_can_deliver({User, Server, <<>>}, true) ->
 presence_can_deliver({User, Server, Resource}, true) ->
     JID = jid:make_noprep(User, Server, Resource),
     case ejabberd_sm:get_session(JID) of
-        {_SUser, _SID, SPriority, _SInfo} when SPriority /= undefined -> true;
+        #session{priority = SPriority} when SPriority /= undefined -> true;
         _ -> false
     end.
 
@@ -3471,7 +3472,7 @@ items_event_stanza(Node, Items) ->
     case Items of
         [LastItem] ->
             {ModifNow, ModifUSR} = LastItem#pubsub_item.modification,
-            Sec = usec:to_sec(usec:from_now(ModifNow)),
+            Sec = erlang:convert_time_unit(ModifNow, microsecond, second),
             TString = calendar:system_time_to_rfc3339(Sec, [{offset, "Z"}]),
             [#xmlel{name = <<"delay">>,
                     attrs = [{<<"xmlns">>, ?NS_DELAY},
@@ -4470,8 +4471,7 @@ string_to_ljid(JID) ->
 
 -spec uniqid() -> mod_pubsub:itemId().
 uniqid() ->
-    {T1, T2, T3} = timestamp(),
-    iolist_to_binary(io_lib:fwrite("~.16B~.16B~.16B", [T1, T2, T3])).
+    uuid:uuid_to_string(uuid:get_v4(), binary_standard).
 
 node_attr(Node) -> [{<<"node">>, Node}].
 
@@ -4620,7 +4620,7 @@ purge_item_of_offline_user(Host, #pubsub_node{ id = Nidx, nodeid = {_, NodeId},
     end.
 
 timestamp() ->
-    os:timestamp().
+    os:system_time(microsecond).
 
 make_error_reply(#iq{ sub_el = SubEl } = IQ, #xmlel{} = ErrorEl) ->
     IQ#iq{type = error, sub_el = [ErrorEl, SubEl]};

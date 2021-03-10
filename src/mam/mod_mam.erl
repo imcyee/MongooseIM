@@ -118,9 +118,11 @@
 -type archive_id()          :: non_neg_integer().
 
 -type borders()             :: #mam_borders{}.
+
+-type message_row() :: {message_id(), jid:jid(), exml:element()}.
 -type lookup_result() :: {TotalCount :: non_neg_integer() | undefined,
                           Offset :: non_neg_integer() | undefined,
-                          MessageRows :: [{message_id(), jid:jid(), exml:element()}]}.
+                          MessageRows :: [message_row()]}.
 
 %% Internal types
 -type iterator_fun() :: fun(() -> {'ok', {_, _}}).
@@ -140,7 +142,9 @@
                                     source_jid := jid:jid(),
                                     origin_id := binary() | none,
                                     direction := atom(),
-                                    packet := exml:element()}.
+                                    packet := exml:element(),
+                                    %% Only in mod_mam_muc_rdbms_arch:retract_message/2
+                                    sender_id => mod_mam:archive_id()}.
 
 -export_type([rewriter_fun/0,
               borders/0,
@@ -150,6 +154,7 @@
               unix_timestamp/0,
               archive_id/0,
               lookup_result/0,
+              message_row/0,
               message_id/0,
               restore_option/0,
               archive_message_params/0
@@ -588,18 +593,18 @@ lookup_messages_without_policy_violation_check(Host, #{search_text := SearchText
         true -> %% Use of disabled full text search
             {error, 'not-supported'};
         false ->
-            StartT = os:timestamp(),
+            StartT = erlang:monotonic_time(microsecond),
             R = mongoose_hooks:mam_lookup_messages(Host, {ok, {0, 0, []}}, Params),
-            Diff = timer:now_diff(os:timestamp(), StartT),
+            Diff = erlang:monotonic_time(microsecond) - StartT,
             mongoose_metrics:update(Host, [backends, ?MODULE, lookup], Diff),
             R
     end.
 
 -spec archive_message(jid:server(), mod_mam:archive_message_params()) -> ok | {error, timeout}.
 archive_message(Host, Params) ->
-    StartT = os:timestamp(),
+    StartT = erlang:monotonic_time(microsecond),
     R = mongoose_hooks:mam_archive_message(Host, ok, Params),
-    Diff = timer:now_diff(os:timestamp(), StartT),
+    Diff = erlang:monotonic_time(microsecond) - StartT,
     mongoose_metrics:update(Host, [backends, ?MODULE, archive], Diff),
     R.
 
@@ -613,7 +618,7 @@ archive_message(Host, Params) ->
     exml:element().
 message_row_to_xml(MamNs, {MessID, SrcJID, Packet}, QueryID, SetClientNs)  ->
     {Microseconds, _NodeMessID} = decode_compact_uuid(MessID),
-    TS = calendar:system_time_to_rfc3339(usec:to_sec(Microseconds), [{offset, "Z"}]),
+    TS = calendar:system_time_to_rfc3339(erlang:convert_time_unit(Microseconds, microsecond, second), [{offset, "Z"}]),
     BExtMessID = mess_id_to_external_binary(MessID),
     Packet1 = mod_mam_utils:maybe_set_client_xmlns(SetClientNs, Packet),
     wrap_message(MamNs, Packet1, QueryID, BExtMessID, TS, SrcJID).

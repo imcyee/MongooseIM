@@ -1,11 +1,25 @@
 site_name: MongooseIM
+site_description: "MongooseIM is a mobile messaging platform with focus on performance and scalability"
+site_author: "Erlang Solutions"
+site_url: https://esl.github.io/MongooseDocs/latest/
+repo_url: https://github.com/esl/MongooseIM
+edit_uri: edit/master/doc/
 docs_dir: doc
 theme:
   name: material
   favicon: favicon.ico
-extra_templates: []
-extra_css: [css/custom.css, css/version-select.css]
-extra_javascript: [js/version-select.js]
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/docker
+      link: https://hub.docker.com/r/mongooseim/mongooseim/
+    - icon: fontawesome/brands/github
+      link: https://github.com/esl/MongooseIM
+plugins:
+  - search:
+      lang: en
+extra_css: [css/custom.css]
 markdown_extensions:
   - pymdownx.highlight:
       linenums: true
@@ -97,7 +111,6 @@ nav:
       - 'Hooks description': 'developers-guide/hooks_description.md'
       - 'Stanza routing': 'developers-guide/Stanza-routing.md'
       - 'Accumulators':  'developers-guide/accumulators.md'
-      - 'Flat options format': 'developers-guide/flat_options.md'
       - 'Moving to single app project structure': 'developers-guide/Moving-to-single-app-project-structure.md'
       - 'mod_amp development': 'developers-guide/mod_amp_developers_guide.md'
       - 'mod_muc_light developers doc': 'developers-guide/mod_muc_light_developers_guide.md'

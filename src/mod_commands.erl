@@ -33,6 +33,7 @@
 -include("jlib.hrl").
 -include("mongoose_rsm.hrl").
 -include("mod_event_pusher_events.hrl").
+-include("session.hrl").
 
 start() ->
     mongoose_commands:register(commands()).
@@ -247,7 +248,7 @@ kick_session(Host, User, Resource) ->
 
 list_sessions(Host) ->
     Lst = ejabberd_sm:get_vh_session_list(Host),
-    [jid:to_binary(JID) || {JID, _, _, _} <- Lst].
+    [jid:to_binary(USR) || #session{usr = USR} <- Lst].
 
 registered_users(Host) ->
     Users = ejabberd_auth:get_vh_registered_users(Host),
