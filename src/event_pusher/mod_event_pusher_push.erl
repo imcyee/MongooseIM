@@ -78,9 +78,7 @@
 %% gen_mod callbacks
 %%--------------------------------------------------------------------
 -spec start(Host :: jid:server(), Opts :: list()) -> any().
-start(Host, Opts) ->
-    ?LOG_INFO(#{what => event_pusher_starting, server => Host}),
-
+start(Host, Opts) ->  
     expand_and_store_virtual_pubsub_hosts(Host, Opts),
 
     WpoolOpts = [{strategy, available_worker} | gen_mod:get_opt(wpool, Opts, [])],
@@ -132,8 +130,7 @@ config_spec() ->
                  Event :: mod_event_pusher:event()) -> mongoose_acc:t().
 push_event(Acc, Host, Event = #chat_event{direction = out, to = To,
                                           type = Type}) when Type =:= groupchat;
-                                                             Type =:= chat ->
-    ?LOG_INFO(#{what => push_event_chat}),
+                                                             Type =:= chat -> 
     BareRecipient = jid:to_bare(To),
     do_push_event(Acc, Host, Event, BareRecipient);
 
@@ -142,13 +139,11 @@ push_event(Acc, Host, Event = #unack_msg_event{to = To}) ->
     BareRecipient = jid:to_bare(To),
     do_push_event(Acc, Host, Event, BareRecipient);
 
-push_event(Acc, Host, Event = #pubsub_event{to = To}) ->
-    ?LOG_INFO(#{what => push_event_pubsub, to => To}),
+push_event(Acc, Host, Event = #pubsub_event{to = To}) -> 
     BareRecipient = jid:to_bare(To),
     do_push_event(Acc, Host, Event, BareRecipient);
 
-push_event(Acc, _, _) ->
-    ?LOG_INFO(#{what => push_event_skipped}),
+push_event(Acc, _, _) -> 
     Acc.
 
 %%--------------------------------------------------------------------
@@ -218,16 +213,12 @@ expand_and_store_virtual_pubsub_hosts(Host, Opts) ->
 
 -spec do_push_event(mongoose_acc:t(), jid:server(), mod_event_pusher:event(), jid:jid()) ->
     mongoose_acc:t().
-do_push_event(Acc, Host, Event, BareRecipient) ->
-    ?LOG_INFO(#{what => do_push_event, tp => BareRecipient}),
+do_push_event(Acc, Host, Event, BareRecipient) -> 
     case mod_event_pusher_push_plugin:prepare_notification(Host, Acc, Event) of
         skip -> Acc;
-        Payload ->
-            ?LOG_INFO(#{what => do_push_event}),
+        Payload -> 
             {ok, Services} = mod_event_pusher_push_backend:get_publish_services(BareRecipient),
-            ?LOG_INFO(#{what => do_push_event_2, services => Services}),
-            FilteredService = mod_event_pusher_push_plugin:should_publish(Host, Acc, Event, Services),
-            ?LOG_INFO(#{what => do_push_event_3, filtered => FilteredService }),
+            FilteredService = mod_event_pusher_push_plugin:should_publish(Host, Acc, Event, Services), 
             mod_event_pusher_push_plugin:publish_notification(Host, Acc, Event, Payload, FilteredService)
     end.
 
