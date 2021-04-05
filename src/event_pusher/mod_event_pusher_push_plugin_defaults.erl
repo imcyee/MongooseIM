@@ -54,7 +54,8 @@ prepare_notification(Acc, Event = #pubsub_event{to = To}) ->
     ?LOG_INFO(#{what => prepare_notification, from => From, to => To, packet => Packet}), 
     case  exml_query:path(Packet, [{element, <<"pubsub">>},{element, <<"publish">>},{element, <<"item">>},{element, <<"entry">>},{element, <<"body">>}]) of
         undefined ->  
-            ?LOG_INFO(#{what => prepare_notification_empty}),
+            ?LOG_INFO(#{what => prepare_notification_empty_1}),
+            ?LOG_INFO(#{what => prepare_notification_empty_empty}),
             skip;
         Body ->
             ?LOG_INFO(#{what => body_okay, body => Body}),

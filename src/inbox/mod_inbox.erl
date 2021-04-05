@@ -235,6 +235,7 @@ send_message(To, Msg) ->
                        Packet :: exml:element()) -> map().
 user_send_packet(Acc, From, To, #xmlel{name = <<"message">>} = Msg) ->
     Host = From#jid.server,
+    ?LOG_DEBUG(#{what => should_be_stored_in_inbox}),
     maybe_process_message(Host, From, To, Msg, outgoing),
     Acc;
 user_send_packet(Acc, _From, _To, _Packet) ->
@@ -254,6 +255,7 @@ filter_packet(drop) ->
     drop;
 filter_packet({From, To, Acc, Msg = #xmlel{name = <<"message">>}}) ->
     Host = To#jid.server,
+    ?LOG_DEBUG(#{what => should_be_stored_in_inbox}),
     %% In case of PgSQL we can we can update inbox and obtain unread_count in one query,
     %% so we put it in accumulator here.
     %% In case of MySQL/MsSQL it costs an extra query, so we fetch it only if necessary
@@ -281,6 +283,8 @@ remove_user(Acc, User, Server) ->
                             Msg :: exml:element(),
                             Dir :: outgoing | incoming) -> ok | {ok, integer()}.
 maybe_process_message(Host, From, To, Msg, Dir) ->
+    ?LOG_DEBUG(#{what => should_be_stored_in_inbox}),
+    ?LOG_DEBUG(#{what => should_be_stored_in_inbox}),
     case should_be_stored_in_inbox(Msg) andalso inbox_owner_exists(From, To, Dir) of
         true ->
             Type = get_message_type(Msg),
@@ -593,9 +597,33 @@ invalid_field_value(Field, Value) ->
 
 -spec should_be_stored_in_inbox(Msg :: exml:element()) -> boolean().
 should_be_stored_in_inbox(Msg) ->
+    ?LOG_DEBUG(#{what => should_be_stored_in_inbox}),
     not is_forwarded_message(Msg) andalso
+        not is_receipt_message(Msg) andalso 
+        not is_chat_states_message(Msg) andalso
         not is_error_message(Msg) andalso
         not is_offline_message(Msg).
+
+-spec is_receipt_message(Msg :: exml:element()) -> boolean().
+is_receipt_message(Msg) ->
+    case exml_query:subelement_with_ns(Msg, ?NS_RECEIPTS, undefined) of
+        undefined ->
+            false;
+        _ ->
+            true
+    end.
+
+
+-spec is_chat_states_message(Msg :: exml:element()) -> boolean().
+is_chat_states_message(Msg) ->
+    case exml_query:subelement_with_ns(Msg, ?NS_CHATSTATES, undefined) of
+        undefined ->
+            ?LOG_DEBUG(#{what => undefined_chat_state}),
+            false;
+        _ ->
+            ?LOG_DEBUG(#{what => defined_chat_state}),
+            true
+    end.
 
 -spec is_forwarded_message(Msg :: exml:element()) -> boolean().
 is_forwarded_message(Msg) ->
