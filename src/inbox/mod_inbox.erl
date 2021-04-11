@@ -99,7 +99,6 @@
         start => integer(),
         'end' => integer(),
         order => asc | desc,
-        limit => non_neg_integer(), 
         hidden_read => true | false,
         archive => boolean()
        }.
@@ -382,7 +381,6 @@ build_inbox_form() ->
                   jlib:form_field({<<"FORM_TYPE">>, <<"hidden">>, ?NS_ESL_INBOX}),
                   text_single_form_field(<<"start">>),
                   text_single_form_field(<<"end">>),
-                  text_single_form_field(<<"max">>),
                   list_single_form_field(<<"order">>, <<"desc">>, OrderOptions),
                   text_single_form_field(<<"hidden_read">>, <<"false">>),
                   jlib:form_field({<<"archive">>, <<"boolean">>, <<"false">>})
@@ -488,16 +486,6 @@ fields_to_params([{<<"end">>, [EndISO]} | RFields], Acc) ->
             ?LOG_WARNING(#{what => inbox_invalid_form_field,
                            reason => Error, field => 'end', value => EndISO}),
             {error, bad_request, invalid_field_value(<<"end">>, EndISO)}
-    end;
-
-fields_to_params([{<<"max">>, [MaxBin]} | RFields], Acc) ->
-    case binary_to_integer(MaxBin) of
-        error ->
-            ?LOG_WARNING(#{what => inbox_invalid_form_field,
-                           field => max, value => MaxBin}),
-            {error, bad_request, invalid_field_value(<<"max">>, MaxBin)};
-        Max ->
-            fields_to_params(RFields, Acc#{ max => Max })
     end;
 
 fields_to_params([{<<"order">>, [OrderBin]} | RFields], Acc) ->
