@@ -46,25 +46,50 @@ should_publish(Acc, #pubsub_event{to = To}, Services) ->
     end;
 should_publish(_Acc, _Event, _Services) -> [].
 
--spec prepare_notification(Acc :: mongooseim_acc:t(),
+% -spec prepare_notification(Acc :: mongooseim_acc:t(),
+%                            Event :: mod_event_pusher:event()) ->
+%                               mod_event_pusher_push_plugin:push_payload() | skip.
+% prepare_notification(Acc, Event = #pubsub_event{to = To}) ->  
+%     {From, To, Packet} = mongoose_acc:packet(Acc),
+%     ?LOG_INFO(#{what => prepare_notification, from => From, to => To, packet => Packet}), 
+%     case  exml_query:path(Packet, [{element, <<"pubsub">>},{element, <<"publish">>},{element, <<"item">>},{element, <<"entry">>},{element, <<"body">>}]) of
+%         undefined ->  
+%             ?LOG_INFO(#{what => prepare_notification_empty_1}),
+%             ?LOG_INFO(#{what => prepare_notification_empty_empty}),
+%             skip;
+%         Body ->
+%             ?LOG_INFO(#{what => body_okay, body => Body}),
+            
+%             BodyCData = exml_query:cdata(Body),
+%             MessageCount = get_unread_count(Acc, To),
+%             SenderId = jid:to_binary(jid:to_lower(From)), 
+%             push_content_fields(SenderId, BodyCData, MessageCount)
+%     end; 
+
+  -spec prepare_notification(Acc :: mongooseim_acc:t(),
                            Event :: mod_event_pusher:event()) ->
                               mod_event_pusher_push_plugin:push_payload() | skip.
 prepare_notification(Acc, Event = #pubsub_event{to = To}) ->  
     {From, To, Packet} = mongoose_acc:packet(Acc),
     ?LOG_INFO(#{what => prepare_notification, from => From, to => To, packet => Packet}), 
-    case  exml_query:path(Packet, [{element, <<"pubsub">>},{element, <<"publish">>},{element, <<"item">>},{element, <<"entry">>},{element, <<"body">>}]) of
+    % case  exml_query:path(Packet, [{element, <<"pubsub">>},{element, <<"publish">>},{element, <<"item">>},{element, <<"entry">>},{element, <<"body">>}]) of
+    case  exml_query:path(Packet, [{element, <<"pubsub">>},{element, <<"publish">>},{element, <<"item">>},{element, <<"notification">>}]) of
         undefined ->  
             ?LOG_INFO(#{what => prepare_notification_empty_1}),
             ?LOG_INFO(#{what => prepare_notification_empty_empty}),
             skip;
         Body ->
             ?LOG_INFO(#{what => body_okay, body => Body}),
-            BodyCData = exml_query:cdata(Body),
-            MessageCount = get_unread_count(Acc, To),
-            SenderId = jid:to_binary(jid:to_lower(From)), 
-            push_content_fields(SenderId, BodyCData, MessageCount)
+            [
+                {<<"message-count">>, <<"2">>},
+                {<<"last-message-sender">>, <<"Alice">>},
+                {<<"last-message-body">>, <<"some body data">>}
+            ]
+            % BodyCData = exml_query:cdata(Body),
+            % MessageCount = get_unread_count(Acc, To),
+            % SenderId = jid:to_binary(jid:to_lower(From)), 
+            % push_content_fields(SenderId, BodyCData, MessageCount)
     end; 
-  
 prepare_notification(Acc, _) -> 
     {From, To, Packet} = mongoose_acc:packet(Acc),
     case exml_query:subelement(Packet, <<"body">>) of
