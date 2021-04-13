@@ -106,10 +106,23 @@ build_message(From, To, Id, Body) ->
              {<<"to">>, To},
              {<<"id">>, Id},
              {<<"type">>, <<"chat">>}],
+    Attrsb = [{<<"xmlns">>, <<"urn:xmpp:sid:0">>},
+              {<<"id">>, Id}],
     #xmlel{name = <<"message">>,
            attrs = Attrs,
-           children = [#xmlel{name = <<"body">>,
-                              children = [#xmlcdata{content = Body}]}]}.
+           children = [#xmlel{name = <<"body">>, children = [#xmlcdata{content = Body}]},
+                       #xmlel{name = <<"origin-id">>, attrs = Attrsb}
+                      ]}.
+%  build_message(From, To, Id, Body) ->
+%     Attrs = [{<<"from">>, From},
+%              {<<"to">>, To},
+%              {<<"id">>, Id},
+%              {<<"type">>, <<"chat">>}],
+%     Attrsb = [{<<"xmlns">>, <<"urn:xmpp:sid:0">>},
+%                                        {<<"id">>, Id}]
+%     #xmlel{name = <<"message">>,
+%            attrs = Attrs,
+%            children = [#xmlel{name = <<"body">>, children = [#xmlcdata{content = Body}]}]}.
 
 make_json_msg(Msg, MAMId) ->
     {Microsec, _} = mod_mam_utils:decode_compact_uuid(MAMId),

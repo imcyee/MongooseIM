@@ -29,8 +29,7 @@
 set_inbox_incr_unread(Username, Server, ToBareJid, Content, MsgId, Timestamp) ->
     ?LOG_DEBUG(#{what => c2s_stream_error}),
     ?LOG_DEBUG(#{what => should_be_stored_in_inbox}),
-    ?LOG_DEBUG(#{what => inbox_unknown_message, text => <<"Unknown message was not written into inbox">>}),
-    
+  
     mongoose_rdbms:sql_query(Server,
         ["insert into inbox(luser, lserver, remote_bare_jid, "
                            "content, unread_count, msg_id, timestamp) "
