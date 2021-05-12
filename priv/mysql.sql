@@ -265,6 +265,7 @@ CREATE TABLE mam_config(
 ) CHARACTER SET utf8mb4
   ROW_FORMAT=DYNAMIC;
 
+-- The server field is a MUC host for MUC rooms
 CREATE TABLE mam_server_user(
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   server    varchar(250) CHARACTER SET binary NOT NULL,
@@ -352,7 +353,7 @@ CREATE TABLE muc_light_blocking(
 ) CHARACTER SET utf8mb4
   ROW_FORMAT=DYNAMIC;
 
-CREATE INDEX i_muc_light_blocking USING HASH ON muc_light_blocking(luser, lserver);
+CREATE INDEX i_muc_light_blocking_su USING BTREE ON muc_light_blocking(lserver, luser);
 
 CREATE TABLE muc_rooms(
     id SERIAL,
@@ -391,9 +392,9 @@ CREATE TABLE inbox (
     timestamp BIGINT UNSIGNED        NOT NULL,
     archive BOOLEAN                  DEFAULT false,
     muted_until BIGINT               DEFAULT 0,
-    PRIMARY KEY(luser, lserver, remote_bare_jid));
+    PRIMARY KEY(lserver, luser, remote_bare_jid));
 
-CREATE INDEX i_inbox USING BTREE ON inbox(luser, lserver, timestamp);
+CREATE INDEX i_inbox USING BTREE ON inbox(lserver, luser, timestamp);
 
 CREATE TABLE pubsub_nodes (
     nidx BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -513,3 +514,21 @@ CREATE TABLE offline_markers (
 ) CHARACTER SET utf8mb4;
 
 CREATE INDEX i_offline_markers ON offline_markers(jid);
+
+-- Mapping from domain hostname to host_type.
+-- Column id is used for ordering only.
+CREATE TABLE domain_settings (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    domain VARCHAR(250) NOT NULL,
+    host_type VARCHAR(250) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT true
+);
+
+-- A new record is inserted into domain_events, each time
+-- domain_settings table is updated.
+-- Column id is used for ordering and not related to domain_settings.id.
+CREATE TABLE domain_events (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    domain VARCHAR(250) NOT NULL
+);
+CREATE INDEX i_domain_events_domain ON domain_events(domain);

@@ -97,8 +97,8 @@ authorize(AuthMethod, User, Password, HTTPMethod, Req, State) ->
     case do_authorize(AuthMethod, MaybeJID, Password, HTTPMethod) of
         noauth ->
             {true, Req, State};
-        true ->
-            {true, Req, State#{user => User, jid => MaybeJID}};
+        {true, Creds} ->
+            {true, Req, State#{user => User, jid => MaybeJID, creds => Creds}};
         false ->
             mongoose_api_common:make_unauthorized_response(Req, State)
     end.
@@ -108,21 +108,25 @@ do_authorize(AuthMethod, MaybeJID, Password, HTTPMethod) ->
         true ->
             noauth;
         false ->
-            check_password(MaybeJID, Password) andalso
-            mongoose_api_common:is_known_auth_method(AuthMethod)
+            mongoose_api_common:is_known_auth_method(AuthMethod) andalso
+                check_password(MaybeJID, Password)
     end.
 
--spec check_password(jid:jid() | error, binary()) -> boolean().
+-spec check_password(jid:jid() | error, binary()) -> {true, mongoose_credentials:t()} | false.
 check_password(error, _) ->
     false;
 check_password(JID, Password) ->
     {LUser, LServer} = jid:to_lus(JID),
-    Creds0 = mongoose_credentials:new(LServer),
-    Creds1 = mongoose_credentials:set(Creds0, username, LUser),
-    Creds2 = mongoose_credentials:set(Creds1, password, Password),
-    case ejabberd_auth:authorize(Creds2) of
-        {ok, _} -> true;
-        _ -> false
+    case mongoose_domain_api:get_host_type(LServer) of
+        {ok, HostType} ->
+            Creds0 = mongoose_credentials:new(LServer, HostType),
+            Creds1 = mongoose_credentials:set(Creds0, username, LUser),
+            Creds2 = mongoose_credentials:set(Creds1, password, Password),
+            case ejabberd_auth:authorize(Creds2) of
+                {ok, Creds} -> {true, Creds};
+                _ -> false
+            end;
+        {error, not_found} -> false
     end.
 
 % Constraints

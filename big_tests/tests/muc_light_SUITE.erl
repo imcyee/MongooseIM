@@ -74,6 +74,7 @@
 
 -import(escalus_ejabberd, [rpc/3]).
 -import(muc_helper, [foreach_occupant/3, foreach_recipient/2]).
+-import(distributed_helper, [subhost_pattern/1]).
 -import(muc_light_helper, [
                            bin_aff_users/1,
                            gc_message_verify_fun/3,
@@ -88,7 +89,8 @@
                            stanza_aff_set/2,
                            default_config/0,
                            user_leave/3,
-                           set_mod_config/3
+                           set_mod_config/3,
+                           stanza_blocking_set/1
 ]).
 
 -include("muc_light.hrl").
@@ -103,7 +105,7 @@
 
 -type ct_aff_user() :: {EscalusClient :: escalus:client(), Aff :: atom()}.
 -type ct_aff_users() :: [ct_aff_user()].
--type ct_block_item() :: {What :: atom(), Action :: atom(), Who :: binary()}.
+-type ct_block_item() :: muc_light_helper:ct_block_item().
 -type verify_fun() :: muc_helper:verify_fun().
 -type xmlel() :: exml:element().
 
@@ -199,7 +201,7 @@ suite() ->
 init_per_suite(Config) ->
     Host = ct:get_config({hosts, mim, domain}),
     {ok, _} = dynamic_modules:start(Host, mod_muc_light,
-                                    [{host, binary_to_list(?MUCHOST)},
+                                    [{host, subhost_pattern(?MUCHOST)},
                                      {backend, mongoose_helper:mnesia_or_rdbms_backend()},
                                      {rooms_in_rosters, true}]),
     Config1 = escalus:init_per_suite(Config),
@@ -236,7 +238,7 @@ init_per_testcase(CaseName, Config) when CaseName =:= disco_features_with_mam;
     set_default_mod_config(),
     dynamic_modules:start(domain(), mod_mam_muc,
                           [{backend, rdbms},
-                           {host, binary_to_list(?MUCHOST)}]),
+                           {host, subhost_pattern(?MUCHOST)}]),
     escalus:init_per_testcase(CaseName, Config);
 init_per_testcase(disco_rooms_rsm, Config) ->
     set_default_mod_config(),
@@ -951,15 +953,6 @@ stanza_aff_get(Room, Ver) ->
 %%--------------------------------------------------------------------
 %% IQ setters
 %%--------------------------------------------------------------------
-
--spec stanza_blocking_set(BlocklistChanges :: [ct_block_item()]) -> xmlel().
-stanza_blocking_set(BlocklistChanges) ->
-    Items = [#xmlel{ name = list_to_binary(atom_to_list(What)),
-                     attrs = [{<<"action">>, list_to_binary(atom_to_list(Action))}],
-                     children = [#xmlcdata{ content = Who }] }
-             || {What, Action, Who} <- BlocklistChanges],
-    escalus_stanza:to(escalus_stanza:iq_set(?NS_MUC_LIGHT_BLOCKING, Items), ?MUCHOST).
-
 
 -spec stanza_destroy_room(Room :: binary()) -> xmlel().
 stanza_destroy_room(Room) ->

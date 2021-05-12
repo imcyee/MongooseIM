@@ -23,7 +23,8 @@
 -export([archive_size/4,
          archive_message/3,
          lookup_messages/3,
-         remove_archive/4]).
+         remove_archive/4,
+         remove_domain/3]).
 
 -export([get_mam_pm_gdpr_data/2]).
 
@@ -85,7 +86,8 @@ get_mam_pm_gdpr_data(Acc, #jid{luser = User, lserver = Host} = ArcJID) ->
             [uniform_to_gdpr(row_to_uniform_format(Row, Env)) || Row <- Rows] ++ Acc
     end.
 
-uniform_to_gdpr({MessID, RemoteJID, Packet}) ->
+-spec uniform_to_gdpr(mod_mam:message_row()) -> tuple().
+uniform_to_gdpr(#{id := MessID, jid := RemoteJID, packet := Packet}) ->
     {integer_to_binary(MessID), jid:to_binary(RemoteJID), exml:to_binary(Packet)}.
 
 %% ----------------------------------------------------------------------
@@ -93,32 +95,25 @@ uniform_to_gdpr({MessID, RemoteJID, Packet}) ->
 
 -spec start_hooks(jid:server(), _) -> ok.
 start_hooks(Host, _Opts) ->
-    case gen_mod:get_module_opt(Host, ?MODULE, no_writer, false) of
-        true ->
-            ok;
-        false ->
-            ejabberd_hooks:add(mam_archive_message, Host, ?MODULE, archive_message, 50)
-    end,
-    ejabberd_hooks:add(mam_archive_size, Host, ?MODULE, archive_size, 50),
-    ejabberd_hooks:add(mam_lookup_messages, Host, ?MODULE, lookup_messages, 50),
-    ejabberd_hooks:add(mam_remove_archive, Host, ?MODULE, remove_archive, 50),
-    ejabberd_hooks:add(get_mam_pm_gdpr_data, Host, ?MODULE, get_mam_pm_gdpr_data, 50),
-    ok.
-
+    ejabberd_hooks:add(hooks(Host)).
 
 -spec stop_hooks(jid:server()) -> ok.
 stop_hooks(Host) ->
-    case gen_mod:get_module_opt(Host, ?MODULE, no_writer, false) of
+    ejabberd_hooks:delete(hooks(Host)).
+
+hooks(Host) ->
+    NoWriter = gen_mod:get_module_opt(Host, ?MODULE, no_writer, false),
+    case NoWriter of
         true ->
-            ok;
+            [];
         false ->
-            ejabberd_hooks:delete(mam_archive_message, Host, ?MODULE, archive_message, 50)
-    end,
-    ejabberd_hooks:delete(mam_archive_size, Host, ?MODULE, archive_size, 50),
-    ejabberd_hooks:delete(mam_lookup_messages, Host, ?MODULE, lookup_messages, 50),
-    ejabberd_hooks:delete(mam_remove_archive, Host, ?MODULE, remove_archive, 50),
-    ejabberd_hooks:delete(get_mam_pm_gdpr_data, Host, ?MODULE, get_mam_pm_gdpr_data, 50),
-    ok.
+            [{mam_archive_message, Host, ?MODULE, archive_message, 50}]
+    end ++
+    [{mam_archive_size, Host, ?MODULE, archive_size, 50},
+     {mam_lookup_messages, Host, ?MODULE, lookup_messages, 50},
+     {mam_remove_archive, Host, ?MODULE, remove_archive, 50},
+     {remove_domain, Host, ?MODULE, remove_domain, 50},
+     {get_mam_pm_gdpr_data, Host, ?MODULE, get_mam_pm_gdpr_data, 50}].
 
 %% ----------------------------------------------------------------------
 %% SQL queries
@@ -128,6 +123,16 @@ register_prepared_queries() ->
     mongoose_rdbms:prepare(mam_archive_remove, mam_message, [user_id],
                            <<"DELETE FROM mam_message "
                              "WHERE user_id = ?">>),
+    mongoose_rdbms:prepare(mam_remove_domain, mam_message, ['mam_server_user.server'],
+                           <<"DELETE FROM mam_message "
+                             "WHERE user_id IN "
+                             "(SELECT id from mam_server_user WHERE server = ?)">>),
+    mongoose_rdbms:prepare(mam_remove_domain_prefs, mam_config, ['mam_server_user.server'],
+                           <<"DELETE FROM mam_config "
+                             "WHERE user_id IN "
+                             "(SELECT id from mam_server_user WHERE server = ?)">>),
+    mongoose_rdbms:prepare(mam_remove_domain_users, mam_server_user, [server],
+                           <<"DELETE FROM mam_server_user WHERE server = ?">>),
     mongoose_rdbms:prepare(mam_make_tombstone, mam_message, [message, user_id, id],
                            <<"UPDATE mam_message SET message = ?, search_body = '' "
                              "WHERE user_id = ? AND id = ?">>),
@@ -312,6 +317,17 @@ prepare_insert(Name, NumRows) ->
                      RoomJID :: jid:jid()) -> mongoose_acc:t().
 remove_archive(Acc, Host, ArcID, _ArcJID) ->
     mongoose_rdbms:execute_successfully(Host, mam_archive_remove, [ArcID]),
+    Acc.
+
+-spec remove_domain(mongoose_hooks:simple_acc(),
+                    mongooseim:host_type(), jid:lserver()) ->
+    mongoose_hooks:simple_acc().
+remove_domain(Acc, HostType, Domain) ->
+    {atomic, _} = mongoose_rdbms:sql_transaction(HostType, fun() ->
+            mongoose_rdbms:execute_successfully(HostType, mam_remove_domain, [Domain]),
+            mongoose_rdbms:execute_successfully(HostType, mam_remove_domain_prefs, [Domain]),
+            mongoose_rdbms:execute_successfully(HostType, mam_remove_domain_users, [Domain])
+        end),
     Acc.
 
 %% GDPR logic

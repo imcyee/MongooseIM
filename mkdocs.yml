@@ -8,6 +8,17 @@ docs_dir: doc
 theme:
   name: material
   favicon: favicon.ico
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
 extra:
   version:
     provider: mike
@@ -51,7 +62,8 @@ nav:
       - '3.7.0 to 4.0.0': 'migrations/3.7.0_4.0.0.md'
       - '4.0.0 to 4.0.1': 'migrations/4.0.0_4.0.1.md'
       - '4.0.1 to 4.1.0': 'migrations/4.0.1_4.1.0.md'
-      - '4.1.0 to 4.x.x': 'migrations/4.1.0_4.x.x.md'
+      - '4.1.0 to 4.2.0': 'migrations/4.1.0_4.2.0.md'
+      - '4.2.0 to 4.3.0': 'migrations/4.2.0_4.3.0.md'
       - 'MAM MUC migration helper': 'migrations/jid-from-mam-muc-script.md'
   - Platform:
       - 'Contributions to ecosystem': 'Contributions.md'
@@ -113,7 +125,7 @@ nav:
       - 'Hooks description': 'developers-guide/hooks_description.md'
       - 'Stanza routing': 'developers-guide/Stanza-routing.md'
       - 'Accumulators':  'developers-guide/accumulators.md'
-      - 'Moving to single app project structure': 'developers-guide/Moving-to-single-app-project-structure.md'
+      - 'Domain management': 'developers-guide/domain_management.md'
       - 'mod_amp development': 'developers-guide/mod_amp_developers_guide.md'
       - 'mod_muc_light developers doc': 'developers-guide/mod_muc_light_developers_guide.md'
       - 'SCRAM serialization format': 'developers-guide/SCRAM-serialization.md'

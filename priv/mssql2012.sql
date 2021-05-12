@@ -471,7 +471,7 @@ CREATE TABLE dbo.muc_light_blocking(
 )
 GO
 
-CREATE INDEX i_muc_light_blocking ON muc_light_blocking(luser, lserver);
+CREATE INDEX i_muc_light_blocking_su ON muc_light_blocking(lserver, luser);
 GO
 
 -- luser, lserver and remote_bare_jid have 250 characters in MySQL
@@ -487,14 +487,14 @@ CREATE TABLE dbo.inbox(
     archive TINYINT DEFAULT 0,
     muted_until BIGINT DEFAULT 0,
     CONSTRAINT PK_inbox PRIMARY KEY CLUSTERED(
-        luser ASC,
         lserver ASC,
+        luser ASC,
         remote_bare_jid ASC
     )
 )
 GO
 
-CREATE INDEX i_inbox_ts ON inbox(luser, lserver, timestamp);
+CREATE INDEX i_inbox_su_ts ON inbox(lserver, luser, timestamp);
 GO
 
 CREATE TABLE dbo.pubsub_nodes (
@@ -700,3 +700,22 @@ CREATE TABLE offline_markers (
 );
 
 CREATE INDEX i_offline_markers ON offline_markers(jid);
+
+
+-- Mapping from domain hostname to host_type.
+-- Column id is used for ordering only.
+CREATE TABLE domain_settings (
+    id BIGINT IDENTITY(1,1) PRIMARY KEY,
+    domain VARCHAR(250) NOT NULL,
+    host_type VARCHAR(250) NOT NULL,
+    enabled SMALLINT NOT NULL DEFAULT 1
+);
+
+-- A new record is inserted into domain_events, each time
+-- domain_settings table is updated.
+-- Column id is used for ordering and not related to domain_settings.id.
+CREATE TABLE domain_events (
+    id BIGINT IDENTITY(1,1) PRIMARY KEY,
+    domain VARCHAR(250) NOT NULL
+);
+CREATE INDEX i_domain_events_domain ON domain_events(domain);

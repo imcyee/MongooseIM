@@ -877,13 +877,10 @@ can_send_broadcasts(Role, StateData) ->
 
 broadcast_room_packet(From, FromNick, Role, Packet, StateData) ->
     Affiliation = get_affiliation(From, StateData),
-    EventData = [{from_nick, FromNick},
-                 {from_jid, From},
-                 {room_jid, StateData#state.jid},
-                 {role, Role},
-                 {affiliation, Affiliation}],
+    EventData = #{from_nick => FromNick, from_jid => From,
+                  room_jid => StateData#state.jid, role => Role,
+                  affiliation => Affiliation},
     FilteredPacket = mongoose_hooks:filter_room_packet(StateData#state.host, Packet, EventData),
-    mongoose_hooks:room_send_packet(StateData#state.host, FilteredPacket, EventData),
     RouteFrom = jid:replace_resource(StateData#state.jid,
                                      FromNick),
     RoomJid = StateData#state.jid,
@@ -1674,7 +1671,7 @@ add_online_user(JID, Nick, Role, StateData) ->
 
 -spec run_join_room_hook(jid:jid(), state()) -> ok.
 run_join_room_hook(JID, #state{room = Room, host = Host, jid = MucJID, server_host = ServerHost}) ->
-  mongoose_hooks:join_room(ServerHost, ok, Room, Host, JID, MucJID),
+  mongoose_hooks:join_room(ServerHost, Room, Host, JID, MucJID),
   ok.
 
 -spec remove_online_user(jid:jid(), state()) -> state().
@@ -1705,7 +1702,7 @@ remove_online_user(JID, StateData, Reason) ->
 
 -spec run_leave_room_hook(jid:jid(), state()) -> ok.
 run_leave_room_hook(JID, #state{room = Room, host = Host, jid = MucJID, server_host = ServerHost}) ->
-  mongoose_hooks:leave_room(ServerHost, ok, Room, Host, JID, MucJID),
+  mongoose_hooks:leave_room(ServerHost, Room, Host, JID, MucJID),
   ok.
 
 -spec filter_presence(exml:element()) -> exml:element().
@@ -2392,7 +2389,7 @@ send_config_update(Type, StateData) ->
 send_invitation(From, To, Reason, StateData=#state{host=Host,
                                                    server_host=ServerHost,
                                                    jid=RoomJID}) ->
-    mongoose_hooks:invitation_sent(Host, ok, ServerHost, RoomJID, From, To, Reason),
+    mongoose_hooks:invitation_sent(Host, ServerHost, RoomJID, From, To, Reason),
     Config = StateData#state.config,
     Password = case Config#config.password_protected of
         false -> <<>>;
@@ -2588,7 +2585,6 @@ add_message_to_history(FromNick, FromJID, Packet, StateData) ->
            StateData#state.history),
     add_to_log(text, {FromNick, Packet}, StateData),
     mongoose_hooks:room_packet(StateData#state.host,
-                               ok,
                                FromNick, FromJID, StateData#state.jid, Packet),
     StateData#state{history = Q1}.
 
@@ -4155,9 +4151,8 @@ unsafe_check_invitation(FromJID, Els, Lang,
             lists:foreach(
               fun(InviteEl) ->
                       {JID, Reason, Msg} = create_invite(FromJID, InviteEl, Lang, StateData),
-                      mongoose_hooks:invitation_sent(Host,
-                                                     ok,
-                                                     ServerHost, RoomJID, FromJID, JID, Reason),
+                      mongoose_hooks:invitation_sent(Host, ServerHost, RoomJID,
+                                                     FromJID, JID, Reason),
                       ejabberd_router:route(StateData#state.jid, JID, Msg)
               end, InviteEls),
             {ok, JIDs}
@@ -4321,17 +4316,9 @@ send_decline_invitation({Packet, XEl, DEl, ToJID}, RoomJID, FromJID) ->
     DAttrs2 = lists:keydelete(<<"to">>, 1, DAttrs),
     DAttrs3 = [{<<"from">>, FromString} | DAttrs2],
     DEl2 = #xmlel{name = <<"decline">>, attrs = DAttrs3, children = DEls},
-    XEl2 = replace_subelement(XEl, DEl2),
-    Packet2 = replace_subelement(Packet, XEl2),
+    XEl2 = xml:replace_subelement(XEl, DEl2),
+    Packet2 = xml:replace_subelement(Packet, XEl2),
     ejabberd_router:route(RoomJID, ToJID, Packet2).
-
-%% @doc Given an element and a new subelement,
-%% replace the instance of the subelement in element with the new subelement.
--spec replace_subelement(exml:element(), exml:element()) -> exml:element().
-replace_subelement(XE = #xmlel{children = SubEls}, NewSubEl) ->
-    {_, NameNewSubEl, _, _} = NewSubEl,
-    SubEls2 = lists:keyreplace(NameNewSubEl, 2, SubEls, NewSubEl),
-    XE#xmlel{children = SubEls2}.
 
 -spec send_error_only_occupants(binary(), exml:element(),
                                 binary() | nonempty_string(),

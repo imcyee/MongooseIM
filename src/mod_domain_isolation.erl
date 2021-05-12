@@ -24,11 +24,14 @@ config_spec() ->
       }.
 
 extra_domains() ->
-    #list{items = #option{type = string, validate = domain_template}}.
+    #list{items = #option{type = string,
+                          validate = subdomain_template,
+                          process = fun mongoose_subdomain_utils:make_subdomain_pattern/1}}.
 
 start(Host, Opts) ->
     ExtraDomains = proplists:get_value(extra_domains, Opts, []),
-    SubHosts = [gen_mod:make_subhost(SubHost, Host) || SubHost <- ExtraDomains],
+    SubHosts = [mongoose_subdomain_utils:get_fqdn(SubdomainPattern, Host)
+                || SubdomainPattern <- ExtraDomains],
     AllHosts = [Host|SubHosts],
     [ejabberd_hooks:add(filter_local_packet, H, ?MODULE, filter_local_packet, 10)
      || H <- AllHosts],
@@ -36,7 +39,8 @@ start(Host, Opts) ->
 
 stop(Host) ->
     ExtraDomains = gen_mod:get_module_opt(Host, ?MODULE, extra_domains, []),
-    SubHosts = [gen_mod:make_subhost(SubHost, Host) || SubHost <- ExtraDomains],
+    SubHosts = [mongoose_subdomain_utils:get_fqdn(SubdomainPattern, Host)
+                || SubdomainPattern <- ExtraDomains],
     AllHosts = [Host|SubHosts],
     [ejabberd_hooks:delete(filter_local_packet, H, ?MODULE, filter_local_packet, 10)
      || H <- AllHosts],
@@ -56,10 +60,14 @@ filter_local_packet({#jid{lserver = FromServer} = From,
         true ->
             Arg;
         false ->
-            send_back_error(mongoose_xmpp_errors:service_unavailable(
-                                <<"en">>, <<"Filtered by the domain isolation">>),
-                            From, To, Acc),
-            drop
+            %% Allow errors from this module to be passed
+            case mongoose_acc:get(domain_isolation, ignore, false, Acc) of
+                true ->
+                    Arg;
+                false ->
+                    maybe_send_back_error(From, To, Acc, Arg),
+                    drop
+            end
      end.
 
 %% muc.localhost becomes localhost.
@@ -69,6 +77,18 @@ domain_to_host(Domain) ->
         {ok, Host} -> Host;
         undefined -> Domain
     end.
+
+maybe_send_back_error(From, To, Acc, Arg) ->
+    case mongoose_acc:stanza_type(Acc) of
+        <<"error">> -> %% Never reply to the errors
+            Arg;
+        _ ->
+            Err = mongoose_xmpp_errors:service_unavailable(<<"en">>,
+                    <<"Filtered by the domain isolation">>),
+            Acc2 = mongoose_acc:set_permanent(domain_isolation, ignore, true, Acc),
+            send_back_error(Err, From, To, Acc2),
+            drop
+   end.
 
 send_back_error(Etype, From, To, Acc) ->
     {Acc1, Err} = jlib:make_error_reply(Acc, Etype),

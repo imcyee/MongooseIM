@@ -111,9 +111,9 @@ publish_notification(Acc, _, Payload, Services) ->
     ?LOG_INFO(#{what => publish_notification}),
     To = mongoose_acc:to_jid(Acc),
     #jid{lserver = Host} = To,
-    VirtualPubsubHosts = mod_event_pusher_push:virtual_pubsub_hosts(Host),
     lists:foreach(fun({PubsubJID, _Node, _Form} = Service) ->
-                      case lists:member(PubsubJID#jid.lserver, VirtualPubsubHosts) of
+                      case mod_event_pusher_push:is_virtual_pubsub_host(Host, Host,
+                                                                        PubsubJID#jid.lserver) of
                           true ->
                                 ?LOG_INFO(#{what => publish_via_hook}),
                               publish_via_hook(Acc, Host, To, Service, Payload);

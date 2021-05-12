@@ -337,7 +337,7 @@ CREATE TABLE muc_light_blocking(
     who VARCHAR(500)        NOT NULL
 );
 
-CREATE INDEX i_muc_light_blocking ON muc_light_blocking (luser, lserver);
+CREATE INDEX i_muc_light_blocking_su ON muc_light_blocking (lserver, luser);
 
 CREATE TABLE inbox (
     luser VARCHAR(250)               NOT NULL,
@@ -349,11 +349,11 @@ CREATE TABLE inbox (
     timestamp BIGINT                 NOT NULL,
     archive BOOLEAN                  DEFAULT false,
     muted_until BIGINT               DEFAULT 0,
-    PRIMARY KEY(luser, lserver, remote_bare_jid));
+    PRIMARY KEY(lserver, luser, remote_bare_jid));
 
-CREATE INDEX i_inbox
+CREATE INDEX i_inbox_timestamp
     ON inbox
-    USING BTREE(luser, lserver, timestamp);
+    USING BTREE(lserver, luser, timestamp);
 
 CREATE TABLE pubsub_nodes (
     nidx               BIGSERIAL PRIMARY KEY,
@@ -404,7 +404,7 @@ CREATE TABLE pubsub_last_item (
     created_lserver     VARCHAR(250) NOT NULL,
     created_at          BIGINT       NOT NULL,
     payload             TEXT         NOT NULL,
-	PRIMARY KEY (nidx)
+    PRIMARY KEY (nidx)
 );
 
 -- we skip luser and lserver in this one as this is little chance (even impossible?)
@@ -470,3 +470,24 @@ CREATE TABLE offline_markers (
 );
 
 CREATE INDEX i_offline_markers ON offline_markers(jid);
+
+-- Mapping from domain hostname to host_type.
+-- Column id is used for ordering only.
+CREATE TABLE domain_settings (
+    id BIGSERIAL NOT NULL UNIQUE,
+    domain VARCHAR(250) NOT NULL,
+    host_type VARCHAR(250) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    PRIMARY KEY(domain)
+);
+
+-- A new record is inserted into domain_events, each time
+-- domain_settings table is updated: i.e. when a domain is removed,
+-- inserted, enabled or disabled.
+-- Column id is used for ordering and not related to domain_settings.id.
+CREATE TABLE domain_events (
+    id BIGSERIAL NOT NULL,
+    domain VARCHAR(250) NOT NULL,
+    PRIMARY KEY(id)
+);
+CREATE INDEX i_domain_events_domain ON domain_events(domain);

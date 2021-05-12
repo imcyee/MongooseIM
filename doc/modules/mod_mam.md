@@ -66,6 +66,17 @@ Do not add a `<stanza-id/>` element from MAM v0.6.
 
 Name of a module implementing [`is_archivable_message/3` callback](#is_archivable_message) that determines if the message should be archived.
 
+### `modules.mod_mam_meta.send_message`
+* **Syntax:** non-empty string
+* **Default:** `"mod_mam_utils"`
+* **Example:** `send_message = "mod_mam_utils"`
+
+Name of a module implementing `send_message/4` callback that routes a message during lookup operation.
+Consult with `mod_mam_utils:send_message/4` code for more information.
+
+Check `big_tests/tests/mam_send_message_SUITE_data/mam_send_message_example.erl` file
+in the MongooseIM repository for the usage example.
+
 ### `modules.mod_mam_meta.archive_chat_markers`
 * **Syntax:** boolean
 * **Default:** `false`
@@ -312,16 +323,12 @@ If you'd like to learn more about metrics in MongooseIM, please visit [MongooseI
 | `[Host, modMamFlushed]` | spiral | Message was stored in a DB asynchronously. |
 | `[Host, modMamForwarded]` | spiral | A message is sent to a client as a part of a MAM query result. |
 | `[Host, modMamLookups]` | spiral | A MAM lookup is performed. |
-| `[Host, modMamSinglePurges]` | spiral | A single purge request is processed by MAM. |
-| `[Host, modMamMultiplePurges]` | spiral | A bulk purge request is processed by MAM. |
 | `[Host, modMamPrefsGets]` | spiral | Archiving preferences have been requested by a client. |
 | `[Host, modMamPrefsSets]` | spiral | Archiving preferences have been updated by a client. |
 | `[Host, modMucMamArchiveRemoved]` | spiral | Room's entire archive is removed. |
 | `[Host, modMucMamArchived]` | spiral | A message is stored in room's archive. |
 | `[Host, modMucMamForwarded]` | spiral | A message is sent to a client as a part of a MAM query result from MUC room. |
 | `[Host, modMucMamLookups]` | spiral | A MAM lookup in MUC room is performed. |
-| `[Host, modMucMamSinglePurges]` | spiral | A single purge request for MUC room is processed by MAM. |
-| `[Host, modMucMamMultiplePurges]` | spiral | A bulk purge request for MUC room is processed by MAM. |
 | `[Host, modMucMamPrefsGets]` | spiral | MUC archiving preferences have been requested by a client. |
 | `[Host, modMucMamPrefsSets]` | spiral | MUC archiving preferences have been updated by a client. |
 | `[Host, mod_mam_rdbms_async_pool_writer, per_message_flush_time]` | histogram | Average time per message insert measured in an async MAM worker. |

@@ -45,6 +45,7 @@
 -export([prevent_service_unavailable/4,
          get_muc_service/5,
          remove_user/3,
+         remove_domain/3,
          add_rooms_to_roster/2,
          process_iq_get/5,
          process_iq_set/4,
@@ -67,9 +68,9 @@ default_schema_definition() ->
     [{"roomname", "Untitled"},
      {"subject", ""}].
 
--spec default_host() -> binary().
+-spec default_host() -> mongoose_subdomain_utils:subdomain_pattern().
 default_host() ->
-    <<"muclight.@HOST@">>.
+    mongoose_subdomain_utils:make_subdomain_pattern(<<"muclight.@HOST@">>).
 
 -spec default_config(MUCServer :: jid:lserver()) -> mod_muc_light_room_config:kv().
 default_config(MUCServer) ->
@@ -149,7 +150,8 @@ start(Host, Opts) ->
         true -> ejabberd_hooks:add(roster_get, Host, ?MODULE, add_rooms_to_roster, 50)
     end,
 
-    TrackedDBFuns = [create_room, destroy_room, room_exists, get_user_rooms, remove_user,
+    TrackedDBFuns = [create_room, destroy_room, room_exists, get_user_rooms,
+                     remove_user, remove_domain,
                      get_config, set_config, get_blocking, set_blocking,
                      get_aff_users, modify_aff_users],
     gen_mod:start_backend_module(mod_muc_light_db, Opts, TrackedDBFuns),
@@ -202,7 +204,8 @@ config_spec() ->
        items = #{<<"backend">> => #option{type = atom,
                                           validate = {module, mod_muc_light_db}},
                  <<"host">> => #option{type = string,
-                                       validate = domain_template},
+                                       validate = subdomain_template,
+                                       process = fun mongoose_subdomain_utils:make_subdomain_pattern/1},
                  <<"equal_occupants">> => #option{type = boolean},
                  <<"legacy_mode">> => #option{type = boolean},
                  <<"rooms_per_user">> => #option{type = int_or_infinity,
@@ -252,6 +255,7 @@ hooks(Host, MUCHost) ->
 
      {offline_groupchat_message_hook, Host, ?MODULE, prevent_service_unavailable, 90},
      {remove_user, Host, ?MODULE, remove_user, 50},
+     {remove_domain, Host, ?MODULE, remove_domain, 50},
      {disco_local_items, Host, ?MODULE, get_muc_service, 50}].
 
 %%====================================================================
@@ -362,6 +366,15 @@ remove_user(Acc, User, Server) ->
             maybe_forget_rooms(AffectedRooms),
             Acc
     end.
+
+-spec remove_domain(mongoose_hooks:simple_acc(),
+                    mongooseim:host_type(), jid:lserver()) ->
+    mongoose_hooks:simple_acc().
+remove_domain(Acc, HostType, Domain) ->
+    MUCHost = gen_mod:get_module_opt_subhost(Domain, ?MODULE, default_host()),
+?LOG_ERROR(#{what => remove_domain_muc, host_type => HostType, domain => Domain}),
+    mod_muc_light_db_backend:remove_domain(HostType, MUCHost, Domain),
+    Acc.
 
 -spec add_rooms_to_roster(Acc :: mongoose_acc:t(), UserJID :: jid:jid()) -> mongoose_acc:t().
 add_rooms_to_roster(Acc, UserJID) ->

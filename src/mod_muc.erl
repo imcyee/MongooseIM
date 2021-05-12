@@ -111,6 +111,15 @@
                              nick       :: nick()
                             }.
 
+-type room_event_data() :: #{
+                  from_nick := nick(),
+                  from_jid := jid:jid(),
+                  room_jid := jid:jid(),
+                  affiliation := affiliation(),
+                  role := role()
+       }.
+-export_type([room_event_data/0]).
+
 -record(state, {host                :: jid:server(),
                 server_host         :: jid:literal_jid(),
                 access,
@@ -173,7 +182,8 @@ config_spec() ->
        items = #{<<"backend">> => #option{type = atom,
                                           validate = {module, mod_muc_db}},
                  <<"host">> => #option{type = string,
-                                       validate = domain_template},
+                                       validate = subdomain_template,
+                                       process = fun mongoose_subdomain_utils:make_subdomain_pattern/1},
                  <<"access">> => #option{type = atom,
                                          validate = access_rule},
                  <<"access_create">> => #option{type = atom,
@@ -322,7 +332,7 @@ forget_room(ServerHost, Host, Name) ->
             %% (i.e. in case we want to expose room removal over REST or SQS).
             %%
             %% In some _rare_ cases this hook can be called more than once for the same room.
-            mongoose_hooks:forget_room(ServerHost, ok, Host, Name);
+            mongoose_hooks:forget_room(ServerHost, Host, Name);
         _ ->
             %% Room is not removed or we don't know.
             %% XXX Handle this case better.
@@ -726,7 +736,7 @@ route_by_type(<<"iq">>, {From, To, Acc, Packet}, #state{host = Host} = State) ->
     ServerHost = State#state.server_host,
     case jlib:iq_query_info(Packet) of
         #iq{type = get, xmlns = ?NS_DISCO_INFO = XMLNS, lang = Lang} = IQ ->
-            Info = mongoose_hooks:disco_info(ServerHost, [], ?MODULE, <<"">>, Lang),
+            Info = mongoose_hooks:disco_info(ServerHost, ?MODULE, <<"">>, Lang),
             Res = IQ#iq{type = result,
                         sub_el = [#xmlel{name = <<"query">>,
                                          attrs = [{<<"xmlns">>, XMLNS}],
@@ -902,8 +912,9 @@ room_jid_to_pid(#jid{luser=RoomName, lserver=MucService}) ->
         {error, not_found}
     end.
 
--spec default_host() -> binary().
-default_host() -> <<"conference.@HOST@">>.
+-spec default_host() -> mongoose_subdomain_utils:subdomain_pattern().
+default_host() ->
+    mongoose_subdomain_utils:make_subdomain_pattern(<<"conference.@HOST@">>).
 
 -spec iq_disco_info(ejabberd:lang(), jid:jid(), jid:jid()) -> [exml:element(), ...].
 iq_disco_info(Lang, From, To) ->

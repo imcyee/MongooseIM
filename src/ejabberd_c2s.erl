@@ -269,8 +269,8 @@ wait_for_stream(timeout, StateData) ->
     {stop, normal, StateData};
 wait_for_stream(closed, StateData) ->
     {stop, normal, StateData};
-wait_for_stream(_UnexpectedItem, #state{ server = Server } = StateData) ->
-    case ejabberd_config:get_local_option(hide_service_name, Server) of
+wait_for_stream(_UnexpectedItem, #state{server = Server} = StateData) ->
+    case ejabberd_config:get_local_option(hide_service_name) of
         true ->
             {stop, normal, StateData};
         _ ->
@@ -287,12 +287,12 @@ handle_stream_start({xmlstreamstart, _Name, Attrs}, #state{} = S0) ->
     Lang = get_xml_lang(Attrs),
     S = S0#state{server = Server, lang = Lang, stream_mgmt = StreamMgmtConfig},
     case {xml:get_attr_s(<<"xmlns:stream">>, Attrs),
-          lists:member(Server, ?MYHOSTS)} of
-        {?NS_STREAM, true} ->
+          mongoose_domain_api:get_host_type(Server)} of
+        {?NS_STREAM, {ok, HostType}} ->
             change_shaper(S, jid:make_noprep(<<>>, Server, <<>>)),
             Version = xml:get_attr_s(<<"version">>, Attrs),
-            stream_start_by_protocol_version(Version, S);
-        {?NS_STREAM, false} ->
+            stream_start_by_protocol_version(Version, S#state{host_type = HostType});
+        {?NS_STREAM, {error, not_found}} ->
             stream_start_error(mongoose_xmpp_errors:host_unknown(), S);
         {_InvalidNS, _} ->
             stream_start_error(mongoose_xmpp_errors:invalid_namespace(), S)
@@ -336,28 +336,30 @@ stream_start_negotiate_features(#state{} = S) ->
             fsm_next_state(wait_for_session_or_sm, S)
     end.
 
-stream_start_features_before_auth(#state{server = Server} = S) ->
-    Creds = maybe_add_cert(mongoose_credentials:new(Server), S),
-    SASLState = cyrsasl:server_new(<<"jabber">>, Server, <<>>, [], Creds),
+stream_start_features_before_auth(#state{server = Server,
+                                         host_type = HostType} = S) ->
+    Creds0 = mongoose_credentials:new(Server, HostType),
+    Creds = maybe_add_cert(Creds0, S),
+    SASLState = cyrsasl:server_new(<<"jabber">>, Server, HostType, <<>>, [], Creds),
     SockMod = (S#state.sockmod):get_sockmod(S#state.socket),
     send_element_from_server_jid(S, stream_features(determine_features(SockMod, S))),
     fsm_next_state(wait_for_feature_before_auth,
                    S#state{sasl_state = SASLState}).
 
-stream_start_features_after_auth(#state{server = Server} = S) ->
+stream_start_features_after_auth(#state{} = S) ->
     SockMod = (S#state.sockmod):get_sockmod(S#state.socket),
     Features = (maybe_compress_feature(SockMod, S)
                 ++ [#xmlel{name = <<"bind">>,
                            attrs = [{<<"xmlns">>, ?NS_BIND}]},
                     #xmlel{name = <<"session">>,
                            attrs = [{<<"xmlns">>, ?NS_SESSION}]}]
-                ++ maybe_roster_versioning_feature(Server)
-                ++ hook_enabled_features(Server) ),
+                ++ maybe_roster_versioning_feature(S)
+                ++ hook_enabled_features(S) ),
     send_element_from_server_jid(S, stream_features(Features)),
     fsm_next_state(wait_for_feature_after_auth, S).
 
-maybe_roster_versioning_feature(Server) ->
-    mongoose_hooks:roster_get_versioning_feature(Server, []).
+maybe_roster_versioning_feature(#state{server = Server, host_type = HostType}) ->
+    mongoose_hooks:roster_get_versioning_feature(HostType, Server).
 
 stream_features(FeatureElements) ->
     #xmlel{name = <<"stream:features">>,
@@ -374,11 +376,10 @@ stream_features(FeatureElements) ->
 %%
 %% http://xmpp.org/rfcs/rfc6120.html#tls-rules-mtn
 determine_features(SockMod, #state{tls = TLS, tls_enabled = TLSEnabled,
-                                   tls_required = TLSRequired,
-                                   server = Server} = S) ->
+                                   tls_required = TLSRequired} = S) ->
     OtherFeatures = maybe_compress_feature(SockMod, S)
                  ++ maybe_sasl_mechanisms(S)
-                 ++ hook_enabled_features(Server),
+                 ++ hook_enabled_features(S),
     case can_use_tls(SockMod, TLS, TLSEnabled) of
         true ->
             case TLSRequired of
@@ -395,8 +396,8 @@ maybe_compress_feature(SockMod, #state{zlib = {ZLib, _}}) ->
         _ -> []
     end.
 
-maybe_sasl_mechanisms(#state{server = Server} = S) ->
-    case cyrsasl:listmech(Server) of
+maybe_sasl_mechanisms(#state{host_type = HostType} = S) ->
+    case cyrsasl:listmech(HostType) of
         [] -> [];
         Mechanisms ->
             [#xmlel{name = <<"mechanisms">>,
@@ -404,8 +405,8 @@ maybe_sasl_mechanisms(#state{server = Server} = S) ->
                     children = [ mechanism(M) || M <- Mechanisms, filter_mechanism(M,S) ]}]
     end.
 
-hook_enabled_features(Server) ->
-    mongoose_hooks:c2s_stream_features(Server, []).
+hook_enabled_features(#state{server = Server, host_type = HostType}) ->
+    mongoose_hooks:c2s_stream_features(HostType, Server).
 
 starttls_stanza(TLSRequired)
   when TLSRequired =:= required;
@@ -507,8 +508,8 @@ wait_for_feature_before_auth({xmlstreamelement, El}, StateData) ->
             Mech = xml:get_attr_s(<<"mechanism">>, Attrs),
             ClientIn = jlib:decode_base64(xml:get_cdata(Els)),
             SaslState = StateData#state.sasl_state,
-            Server = StateData#state.server,
-            AuthMech = [M || M <- cyrsasl:listmech(Server), filter_mechanism(M, StateData)],
+            HostType = StateData#state.host_type,
+            AuthMech = [M || M <- cyrsasl:listmech(HostType), filter_mechanism(M, StateData)],
             SocketData = #{socket => StateData#state.socket, auth_mech => AuthMech},
             StepResult = cyrsasl:server_start(SaslState, Mech, ClientIn, SocketData),
             {NewFSMState, NewStateData} = handle_sasl_step(StateData, StepResult),
@@ -517,7 +518,7 @@ wait_for_feature_before_auth({xmlstreamelement, El}, StateData) ->
                                        TLSEnabled == false,
                                        SockMod == gen_tcp ->
             TLSOpts = case ejabberd_config:get_local_option(
-                             {domain_certfile, StateData#state.server}) of
+                             {domain_certfile, StateData#state.host_type}) of
                           undefined ->
                               StateData#state.tls_options;
                           CertFile ->
@@ -742,7 +743,8 @@ maybe_open_session(Acc, #state{jid = JID} = StateData) ->
         true ->
             do_open_session(Acc, JID, StateData);
         _ ->
-            Acc1 = mongoose_hooks:forbidden_session_hook(StateData#state.server, Acc, JID),
+            Acc1 = mongoose_hooks:forbidden_session_hook(StateData#state.host_type,
+                                                         Acc, JID),
             ?LOG_INFO(#{what => forbidden_session,
                         text => <<"User not allowed to open session">>,
                         acc => Acc, c2s_state => StateData}),
@@ -771,26 +773,27 @@ do_open_session(Acc, JID, StateData) ->
             end
     end.
 
-do_open_session_common(Acc, JID, #state{jid = JID, server = S} = NewStateData0) ->
+do_open_session_common(Acc, JID, #state{host_type = HostType,
+                                        jid = JID} = NewStateData0) ->
     change_shaper(NewStateData0, JID),
-    Acc1 = mongoose_hooks:roster_get_subscription_lists(S, Acc, JID),
+    Acc1 = mongoose_hooks:roster_get_subscription_lists(HostType, Acc, JID),
     {Fs, Ts, Pending} = mongoose_acc:get(roster, subscription_lists, {[], [], []}, Acc1),
     LJID = jid:to_lower(jid:to_bare(JID)),
     Fs1 = [LJID | Fs],
     Ts1 = [LJID | Ts],
-    PrivList = mongoose_hooks:privacy_get_user_list(S, #userlist{}, JID),
+    PrivList = mongoose_hooks:privacy_get_user_list(HostType, JID),
     SID = ejabberd_sm:make_new_sid(),
     Conn = get_conn_type(NewStateData0),
     Info = #{ip => NewStateData0#state.ip, conn => Conn,
              auth_module => NewStateData0#state.auth_module },
-    ReplacedPids = ejabberd_sm:open_session(SID, JID, Info),
+    ReplacedPids = ejabberd_sm:open_session(HostType, SID, JID, Info),
 
     RefsAndPids = [{monitor(process, PID), PID} || PID <- ReplacedPids],
     case RefsAndPids of
         [] ->
             ok;
         _ ->
-            Timeout = get_replaced_wait_timeout(S),
+            Timeout = get_replaced_wait_timeout(HostType),
             erlang:send_after(Timeout, self(), replaced_wait_timeout)
     end,
 
@@ -804,8 +807,8 @@ do_open_session_common(Acc, JID, #state{jid = JID, server = S} = NewStateData0) 
                         privacy_list = PrivList},
     {established, Acc1, NewStateData}.
 
-get_replaced_wait_timeout(S) ->
-    ejabberd_config:get_local_option_or_default({replaced_wait_timeout, S},
+get_replaced_wait_timeout(HostType) ->
+    ejabberd_config:get_local_option_or_default({replaced_wait_timeout, HostType},
                                                 default_replaced_wait_timeout()).
 
 default_replaced_wait_timeout() ->
@@ -851,8 +854,8 @@ session_established({xmlstreamelement, El}, StateData) ->
             % initialise accumulator, fill with data
             El1 = fix_message_from_user(El, StateData#state.lang),
             Acc0 = element_to_origin_accum(El1, StateData),
-            Acc1 = mongoose_hooks:c2s_preprocessing_hook(StateData#state.server,
-                                           Acc0, NewState),
+            Acc1 = mongoose_hooks:c2s_preprocessing_hook(StateData#state.host_type,
+                                                         Acc0, NewState),
             case mongoose_acc:get(hook, result, undefined, Acc1) of
                 drop -> fsm_next_state(session_established, NewState);
                 _ -> process_outgoing_stanza(Acc1, NewState)
@@ -889,13 +892,12 @@ process_outgoing_stanza(Acc, StateData) ->
     fsm_next_state(session_established, NState).
 
 process_outgoing_stanza(Acc, ToJID, <<"presence">>, StateData) ->
-    #jid{ user = User, server = Server, lserver = LServer } = FromJID = mongoose_acc:from_jid(Acc),
-    Res = mongoose_hooks:c2s_update_presence(LServer, Acc),
+    #jid{user = User, server = Server} = FromJID = mongoose_acc:from_jid(Acc),
+    %% TODO: recheck that Acc has sender's host type here.
+    HostType = mongoose_acc:host_type(Acc),
+    Res = mongoose_hooks:c2s_update_presence(HostType, Acc),
     El = mongoose_acc:element(Res),
-    Res1 = mongoose_hooks:user_send_packet(
-                                   LServer,
-                                   Res,
-                                   FromJID, ToJID, El),
+    Res1 = mongoose_hooks:user_send_packet(HostType, Res, FromJID, ToJID, El),
     {_Acc1, NState} = case ToJID of
                           #jid{user = User,
                                server = Server,
@@ -908,7 +910,7 @@ process_outgoing_stanza(Acc, ToJID, <<"presence">>, StateData) ->
 process_outgoing_stanza(Acc0, ToJID, <<"iq">>, StateData) ->
     {XMLNS, Acc} = mongoose_iq:xmlns(Acc0),
     FromJID = mongoose_acc:from_jid(Acc),
-    LServer = mongoose_acc:lserver(Acc),
+    HostType = mongoose_acc:host_type(Acc),
     El = mongoose_acc:element(Acc),
     {_Acc, NState} = case XMLNS of
                          ?NS_PRIVACY ->
@@ -916,22 +918,17 @@ process_outgoing_stanza(Acc0, ToJID, <<"iq">>, StateData) ->
                          ?NS_BLOCKING ->
                              process_privacy_iq(Acc, ToJID, StateData);
                          _ ->
-                             Acc2 = mongoose_hooks:user_send_packet(
-                                                            LServer,
-                                                            Acc,
-                                                            FromJID, ToJID, El),
+                             Acc2 = mongoose_hooks:user_send_packet(HostType, Acc,
+                                                                    FromJID, ToJID, El),
                              Acc3 = check_privacy_and_route(Acc2, StateData),
                              {Acc3, StateData}
     end,
     NState;
 process_outgoing_stanza(Acc, ToJID, <<"message">>, StateData) ->
     FromJID = mongoose_acc:from_jid(Acc),
-    LServer = mongoose_acc:lserver(Acc),
+    HostType = mongoose_acc:host_type(Acc),
     El = mongoose_acc:element(Acc),
-    Acc1 = mongoose_hooks:user_send_packet(
-                                   LServer,
-                                   Acc,
-                                   FromJID, ToJID, El),
+    Acc1 = mongoose_hooks:user_send_packet(HostType, Acc, FromJID, ToJID, El),
     _Acc2 = check_privacy_and_route(Acc1, StateData),
     StateData;
 process_outgoing_stanza(_Acc, _ToJID, _Name, StateData) ->
@@ -983,8 +980,8 @@ resume_session(resume, From, SD) ->
 %%----------------------------------------------------------------------
 
 handle_event(keep_alive_packet, session_established,
-             #state{server = Server, jid = JID} = StateData) ->
-    mongoose_hooks:user_sent_keep_alive(Server, JID),
+             #state{host_type = HostType, jid = JID} = StateData) ->
+    mongoose_hooks:user_sent_keep_alive(HostType, JID),
     fsm_next_state(session_established, StateData);
 handle_event(_Event, StateName, StateData) ->
     fsm_next_state(StateName, StateData).
@@ -1036,11 +1033,8 @@ code_change(_OldVsn, StateName, StateData, _Extra) ->
 
 
 %%% system events
-handle_info({exit, Reason}, _StateName, StateData) ->
-    Lang = StateData#state.lang,
-    Acc = mongoose_acc:new(#{ location => ?LOCATION,
-                              lserver => ejabberd_c2s_state:server(StateData),
-                              element => undefined }),
+handle_info({exit, Reason}, _StateName, StateData = #state{lang = Lang}) ->
+    Acc = new_acc(StateData, #{location => ?LOCATION, element => undefined}),
     send_element(Acc, mongoose_xmpp_errors:stream_conflict(Lang, Reason), StateData),
     send_trailer(StateData),
     {stop, normal, StateData};
@@ -1051,11 +1045,9 @@ handle_info(replaced, _StateName, StateData) ->
     maybe_send_trailer_safe(StateData),
     {stop, normal, StateData#state{authenticated = replaced}};
 handle_info(new_offline_messages, session_established,
-            #state{pres_last = Presence, pres_invis = Invisible, jid = JID} = StateData)
+            #state{pres_last = Presence, pres_invis = Invisible} = StateData)
   when Presence =/= undefined orelse Invisible ->
-    Acc = mongoose_acc:new(#{ location => ?LOCATION,
-                              lserver => JID#jid.lserver,
-                              element => undefined }),
+    Acc = new_acc(StateData, #{location => ?LOCATION, element => undefined}),
     resend_offline_messages(Acc, StateData),
     {next_state, session_established, StateData};
 handle_info({'DOWN', Monitor, _Type, _Object, _Info}, _StateName, StateData)
@@ -1095,14 +1087,12 @@ handle_info(system_shutdown, StateName, StateData) ->
     end,
     c2s_stream_error(mongoose_xmpp_errors:system_shutdown(), StateData);
 handle_info({force_update_presence, LUser}, StateName,
-            #state{user = LUser, server = LServer} = StateData) ->
+            #state{user = LUser, host_type = HostType} = StateData) ->
     NewStateData =
     case StateData#state.pres_last of
         #xmlel{name = <<"presence">>} = PresEl ->
             Acc = element_to_origin_accum(PresEl, StateData),
-            mongoose_hooks:c2s_update_presence(
-                           LServer,
-                           Acc),
+            mongoose_hooks:c2s_update_presence(HostType, Acc),
             {_Acc, StateData2} = presence_update(Acc, StateData#state.jid, StateData),
             StateData2;
         _ ->
@@ -1137,9 +1127,7 @@ handle_incoming_message({send_text, Text}, StateName, StateData) ->
     send_text(StateData, Text),
     fsm_next_state(StateName, StateData);
 handle_incoming_message({broadcast, Broadcast}, StateName, StateData) ->
-    Acc = mongoose_acc:new(#{ location => ?LOCATION,
-                               lserver => StateData#state.server,
-                               element => undefined }),
+    Acc = new_acc(StateData, #{location => ?LOCATION, element => undefined}),
     ?LOG_DEBUG(#{what => c2s_broadcast,
                  brodcast_data => Broadcast,
                  state_name => StateName, c2s_state => StateData}),
@@ -1149,12 +1137,12 @@ handle_incoming_message({route, From, To, Acc}, StateName, StateData) ->
     process_incoming_stanza_with_conflict_check(From, To, Acc, StateName, StateData);
 handle_incoming_message({send_filtered, Feature, From, To, Packet}, StateName, StateData) ->
     % this is used by pubsub and should be rewritten when someone rewrites pubsub module
-    Acc = mongoose_acc:new(#{ location => ?LOCATION,
-                              from_jid => From,
-                              to_jid => To,
-                              lserver => To#jid.lserver,
-                              element => Packet }),
-    Drop = mongoose_hooks:c2s_filter_packet(StateData#state.server, true, StateData,
+    #state{server = Server, host_type = HostType} = StateData,
+    Acc = new_acc(StateData, #{location => ?LOCATION,
+                               from_jid => From,
+                               to_jid => To,
+                               element => Packet}),
+    Drop = mongoose_hooks:c2s_filter_packet(HostType, Server, StateData,
                                             Feature, To, Packet),
     case {Drop, StateData#state.jid} of
         {true, _} ->
@@ -1178,9 +1166,10 @@ handle_incoming_message({send_filtered, Feature, From, To, Packet}, StateName, S
             fsm_next_state(StateName, StateData)
     end;
 handle_incoming_message({run_remote_hook, HandlerName, Args}, StateName, StateData) ->
-    Host = ejabberd_c2s_state:server(StateData),
+    HostType = ejabberd_c2s_state:host_type(StateData),
     HandlerState = maps:get(HandlerName, StateData#state.handlers, empty_state),
-    case mongoose_hooks:c2s_remote_hook(Host, HandlerName, Args, HandlerState, StateData) of
+    case mongoose_hooks:c2s_remote_hook(HostType, HandlerName, Args,
+                                        HandlerState, StateData) of
         {error, E} ->
             ?LOG_ERROR(#{what => custom_c2s_hook_handler_error,
                          text => <<"c2s_remote_hook failed">>, reason => E,
@@ -1273,8 +1262,7 @@ preprocess_and_ship(Acc, From, To, El, StateData) ->
         jid:to_binary(To),
         Attrs),
     FixedEl = El#xmlel{attrs = Attrs2},
-    Acc2 = mongoose_hooks:user_receive_packet(StateData#state.server,
-                                              Acc,
+    Acc2 = mongoose_hooks:user_receive_packet(StateData#state.host_type, Acc,
                                               StateData#state.jid, From, To, FixedEl),
     ship_to_local_user(Acc2, {From, To, FixedEl}, StateData).
 
@@ -1372,8 +1360,8 @@ handle_routed_broadcast(Acc, {item, IJID, ISubscription}, StateData) ->
     {Acc2, NewState} = roster_change(Acc, IJID, ISubscription, StateData),
     {Acc2, {new_state, NewState}};
 handle_routed_broadcast(Acc, {privacy_list, PrivList, PrivListName}, StateData) ->
-    case mongoose_hooks:privacy_updated_list(StateData#state.server,
-                                 false, StateData#state.privacy_list, PrivList) of
+    case mongoose_hooks:privacy_updated_list(StateData#state.host_type,
+                                             StateData#state.privacy_list, PrivList) of
         false ->
             {Acc, {new_state, StateData}};
         NewPL ->
@@ -1414,8 +1402,8 @@ privacy_list_push_iq(PrivListName) ->
                              Acc0 :: mongoose_acc:t(), StateData :: state()) -> routing_result().
 handle_routed_presence(From, To, Acc, StateData) ->
     Packet = mongoose_acc:element(Acc),
-    State = mongoose_hooks:c2s_presence_in(StateData#state.server,
-                                    StateData, From, To, Packet),
+    State = mongoose_hooks:c2s_presence_in(StateData#state.host_type,
+                                           StateData, From, To, Packet),
     case mongoose_acc:stanza_type(Acc) of
         <<"probe">> ->
             {LFrom, LBFrom} = lowcase_and_bare(From),
@@ -1514,8 +1502,7 @@ terminate({handover_session, From}, StateName, StateData, UnreadMessages) ->
     % and then run the normal termination
     terminate(normal, StateName, NewStateData, []);
 terminate(_Reason, StateName, StateData, UnreadMessages) ->
-    InitialAcc0 = mongoose_acc:new(
-             #{location => ?LOCATION, lserver => StateData#state.server, element => undefined}),
+    InitialAcc0 = new_acc(StateData, #{location => ?LOCATION, element => undefined}),
     Acc = case StateData#state.stream_mgmt of
               true -> mongoose_acc:set(stream_mgmt, h, StateData#state.stream_mgmt_in, InitialAcc0);
               _ -> InitialAcc0
@@ -1656,11 +1643,10 @@ send_element_from_server_jid(StateData, #xmlel{} = El) ->
 
 -spec send_element_from_server_jid(mongoose_acc:t() | no_acc, state(), exml:element()) -> any().
 send_element_from_server_jid(no_acc, #state{server = Server} = StateData, #xmlel{} = El) ->
-    Acc = mongoose_acc:new(#{location => ?LOCATION,
-                             from_jid => jid:make_noprep(<<>>, Server, <<>>),
-                             to_jid => StateData#state.jid,
-                             lserver => Server,
-                             element => El }),
+    Acc = new_acc(StateData, #{location => ?LOCATION,
+                               from_jid => jid:make_noprep(<<>>, Server, <<>>),
+                               to_jid => StateData#state.jid,
+                               element => El}),
     send_element_from_server_jid(Acc, StateData, El);
 send_element_from_server_jid(Acc, StateData, #xmlel{} = El) ->
     Acc1 = send_element(Acc, El, StateData),
@@ -1668,8 +1654,8 @@ send_element_from_server_jid(Acc, StateData, #xmlel{} = El) ->
 
 %% @doc This is the termination point - from here stanza is sent to the user
 -spec send_element(mongoose_acc:t(), exml:element(), state()) -> mongoose_acc:t().
-send_element(Acc, El, #state{server = Server} = StateData) ->
-    Acc1 = mongoose_hooks:xmpp_send_element(Server, Acc, El),
+send_element(Acc, El, #state{host_type = HostType} = StateData) ->
+    Acc1 = mongoose_hooks:xmpp_send_element(HostType, Acc, El),
     Res = do_send_element(El, StateData),
     mongoose_acc:set(c2s, send_result, Res, Acc1).
 
@@ -1829,7 +1815,7 @@ check_privacy_and_route_probe(StateData, From, To, Acc, Packet) ->
         allow ->
             Pid = element(2, StateData#state.sid),
             Acc2 = mongoose_hooks:presence_probe_hook(
-                               StateData#state.server,
+                               StateData#state.host_type,
                                Acc1,
                                From, To, Pid),
             %% Don't route a presence probe to oneself
@@ -1973,13 +1959,13 @@ presence_update_to_available(Acc, From, Packet, StateData) ->
                                    Packet :: exml:element(),
                                    StateData :: state()) -> {mongoose_acc:t(), state()}.
 presence_update_to_available(true, Acc, _, NewPriority, From, Packet, StateData) ->
-    Acc2 = mongoose_hooks:user_available_hook(StateData#state.server,
+    Acc2 = mongoose_hooks:user_available_hook(StateData#state.host_type,
                                               Acc,
                                               StateData#state.jid),
     Res = case NewPriority >= 0 of
               true ->
                   Acc3 = mongoose_hooks:roster_get_subscription_lists(
-                                                 StateData#state.server,
+                                                 StateData#state.host_type,
                                                  Acc2,
                                                  StateData#state.jid),
                   {_, _, Pending} = mongoose_acc:get(roster, subscription_lists,
@@ -2057,10 +2043,9 @@ presence_track(Acc, StateData) ->
                                               StateData :: state()) -> mongoose_acc:t().
 process_presence_subscription_and_route(Acc, Type, StateData) ->
     From = mongoose_acc:from_jid(Acc),
-    Server = StateData#state.server,
+    HostType = StateData#state.host_type,
     To = mongoose_acc:to_jid(Acc),
-    Acc1 = mongoose_hooks:roster_out_subscription(
-             Server, Acc, From, To, Type),
+    Acc1 = mongoose_hooks:roster_out_subscription(HostType, Acc, From, To, Type),
     check_privacy_and_route(Acc1, jid:to_bare(From), StateData).
 
 -spec check_privacy_and_route(Acc :: mongoose_acc:t(),
@@ -2096,11 +2081,10 @@ check_privacy_and_route(Acc, FromRoute, StateData) ->
                            StateData :: state()) -> allow|deny|block.
 privacy_check_packet(#xmlel{} = Packet, From, To, Dir, StateData) ->
     % in some cases we need an accumulator-less privacy check
-    Acc = mongoose_acc:new(#{ location => ?LOCATION,
-                              from_jid => From,
-                              to_jid => To,
-                              lserver => StateData#state.server,
-                              element => Packet }),
+    Acc = new_acc(StateData, #{location => ?LOCATION,
+                               from_jid => From,
+                               to_jid => To,
+                               element => Packet}),
     {_, Res} = privacy_check_packet(Acc, To, Dir, StateData),
     Res.
 
@@ -2110,7 +2094,6 @@ privacy_check_packet(#xmlel{} = Packet, From, To, Dir, StateData) ->
                            StateData :: state()) -> {mongoose_acc:t(), allow|deny|block}.
 privacy_check_packet(Acc, To, Dir, StateData) ->
     mongoose_privacy:privacy_check_packet(Acc,
-                                          StateData#state.server,
                                           StateData#state.jid,
                                           StateData#state.privacy_list,
                                           To,
@@ -2124,7 +2107,6 @@ privacy_check_packet(Acc, To, Dir, StateData) ->
                            StateData :: state()) -> {mongoose_acc:t(), allow|deny|block}.
 privacy_check_packet(Acc, Packet, From, To, Dir, StateData) ->
     mongoose_privacy:privacy_check_packet({Acc, Packet},
-                                          StateData#state.server,
                                           StateData#state.jid,
                                           StateData#state.privacy_list,
                                           From,
@@ -2320,15 +2302,13 @@ process_privacy_iq(Acc1, To, StateData) ->
 process_privacy_iq(Acc, get, To, StateData) ->
     From = mongoose_acc:from_jid(Acc),
     {IQ, Acc1} = mongoose_iq:info(Acc),
-    Acc2 = mongoose_hooks:privacy_iq_get(StateData#state.server,
-                                         Acc1,
+    Acc2 = mongoose_hooks:privacy_iq_get(StateData#state.host_type, Acc1,
                                          From, To, IQ, StateData#state.privacy_list),
     {Acc2, StateData};
 process_privacy_iq(Acc, set, To, StateData) ->
     From = mongoose_acc:from_jid(Acc),
     {IQ, Acc1} = mongoose_iq:info(Acc),
-    Acc2 = mongoose_hooks:privacy_iq_set(StateData#state.server,
-                                         Acc1,
+    Acc2 = mongoose_hooks:privacy_iq_set(StateData#state.host_type, Acc1,
                                          From, To, IQ),
     case mongoose_acc:get(hook, result, undefined, Acc2) of
         {result, _, NewPrivList} ->
@@ -2344,7 +2324,7 @@ resend_offline_messages(Acc, StateData) ->
     ?LOG_DEBUG(#{what => resend_offline_messages,
                  acc => Acc, c2s_state => StateData}),
     Acc1 = mongoose_hooks:resend_offline_messages_hook(
-                                   StateData#state.server,
+                                   StateData#state.host_type,
                                    Acc,
                                    StateData#state.jid),
     Rs = mongoose_acc:get(offline, messages, [], Acc1),
@@ -2429,8 +2409,8 @@ process_unauthenticated_stanza(StateData, El) ->
     case jlib:iq_query_info(NewEl) of
         #iq{} = IQ ->
             Res = mongoose_hooks:c2s_unauthenticated_iq(
+                                          StateData#state.host_type,
                                           StateData#state.server,
-                                          empty,
                                           IQ, StateData#state.ip),
             case Res of
                 empty ->
@@ -2495,7 +2475,7 @@ fsm_reply(Reply, StateName, StateData) ->
 is_ip_blacklisted(undefined) ->
     false;
 is_ip_blacklisted({IP, _Port}) ->
-    mongoose_hooks:check_bl_c2s(false, IP).
+    mongoose_hooks:check_bl_c2s(IP).
 
 
 %% @doc Check from attributes.
@@ -2781,7 +2761,7 @@ bounce_csi_buffer(#state{csi_buffer = Buffer}) ->
 %%%----------------------------------------------------------------------
 %%% XEP-0198: Stream Management
 %%%----------------------------------------------------------------------
-maybe_enable_stream_mgmt(NextState, El, StateData) ->
+maybe_enable_stream_mgmt(NextState, El, StateData = #state{server = LServer}) ->
     case {xml:get_tag_attr_s(<<"xmlns">>, El),
           StateData#state.stream_mgmt,
           xml:get_tag_attr_s(<<"resume">>, El)}
@@ -2795,9 +2775,9 @@ maybe_enable_stream_mgmt(NextState, El, StateData) ->
                                          enable_stream_resumption(StateData)
                                  end,
             send_element_from_server_jid(NewSD, EnabledEl),
-            BufferMax = get_buffer_max(),
-            AckFreq = get_ack_freq(),
-            ResumeTimeout = get_resume_timeout(),
+            BufferMax = get_buffer_max(LServer),
+            AckFreq = get_ack_freq(LServer),
+            ResumeTimeout = get_resume_timeout(LServer),
             fsm_next_state(NextState,
                            NewSD#state{stream_mgmt = true,
                                        stream_mgmt_buffer_max = BufferMax,
@@ -2982,17 +2962,17 @@ drop_last(N, List) ->
                                   end, {N, []}, List),
     {N - ToDrop, List2}.
 
--spec get_buffer_max() -> pos_integer() | infinity.
-get_buffer_max() ->
-    mod_stream_management:get_buffer_max(?STREAM_MGMT_CACHE_MAX).
+-spec get_buffer_max(jid:lserver()) -> pos_integer() | infinity.
+get_buffer_max(LServer) ->
+    mod_stream_management:get_buffer_max(LServer, ?STREAM_MGMT_CACHE_MAX).
 
--spec get_ack_freq() -> pos_integer().
-get_ack_freq() ->
-    mod_stream_management:get_ack_freq(?STREAM_MGMT_ACK_FREQ).
+-spec get_ack_freq(jid:lserver()) -> pos_integer().
+get_ack_freq(LServer) ->
+    mod_stream_management:get_ack_freq(LServer, ?STREAM_MGMT_ACK_FREQ).
 
--spec get_resume_timeout() -> pos_integer().
-get_resume_timeout() ->
-    mod_stream_management:get_resume_timeout(?STREAM_MGMT_RESUME_TIMEOUT).
+-spec get_resume_timeout(jid:lserver()) -> pos_integer().
+get_resume_timeout(LServer) ->
+    mod_stream_management:get_resume_timeout(LServer, ?STREAM_MGMT_RESUME_TIMEOUT).
 
 maybe_send_ack_request(Acc, #state{stream_mgmt = StreamMgmt})
   when StreamMgmt =:= false; StreamMgmt =:= disabled ->
@@ -3035,14 +3015,14 @@ notify_unacknowledged_msg_if_in_resume_state(Acc,
 notify_unacknowledged_msg_if_in_resume_state(Acc, _) ->
     Acc.
 
-maybe_notify_unacknowledged_msg(Acc, #state{jid = Jid}) ->
+maybe_notify_unacknowledged_msg(Acc, #state{jid = Jid, host_type = HostType}) ->
     case mongoose_acc:stanza_name(Acc) of
-        <<"message">> -> notify_unacknowledged_msg(Acc, Jid);
+        <<"message">> -> notify_unacknowledged_msg(HostType, Acc, Jid);
         _ -> Acc
     end.
 
-notify_unacknowledged_msg(Acc, #jid{lserver = Server} = Jid) ->
-    NewAcc = mongoose_hooks:unacknowledged_message(Server, Acc, Jid),
+notify_unacknowledged_msg(HostType, Acc, Jid) ->
+    NewAcc = mongoose_hooks:unacknowledged_message(HostType, Acc, Jid),
     mongoose_acc:strip(NewAcc).
 
 finish_state(ok, StateName, StateData) ->
@@ -3067,11 +3047,11 @@ maybe_enter_resume_session(_SMID, #state{} = SD) ->
           end,
     {next_state, resume_session, NSD, hibernate()}.
 
-maybe_resume_session(NextState, El, StateData) ->
+maybe_resume_session(NextState, El, StateData = #state{server = LServer}) ->
     case {xml:get_tag_attr_s(<<"xmlns">>, El),
           xml:get_tag_attr_s(<<"previd">>, El)} of
         {?NS_STREAM_MGNT_3, SMID} ->
-            FromSMID = mod_stream_management:get_session_from_smid(SMID),
+            FromSMID = mod_stream_management:get_session_from_smid(LServer, SMID),
             do_resume_session(SMID, El, FromSMID, StateData);
         {InvalidNS, _} ->
             ?LOG_INFO(#{what => c2s_ignores_resume,
@@ -3100,7 +3080,7 @@ do_resume_session(SMID, El, {sid, {_, Pid}}, StateData) ->
                 Priority = get_priority_from_presence(NSD#state.pres_last),
                 Info = #{ip => NSD#state.ip, conn => NSD#state.conn,
                          auth_module => NSD#state.auth_module },
-                ejabberd_sm:open_session(SID, NSD#state.jid, Priority, Info),
+                ejabberd_sm:open_session(NSD#state.host_type, SID, NSD#state.jid, Priority, Info),
                 ok = mod_stream_management:register_smid(SMID, SID),
                 try
                     Resumed = stream_mgmt_resumed(NSD#state.stream_mgmt_id,
@@ -3184,21 +3164,13 @@ stream_mgmt_resumed(SMID, Handled) ->
                     {<<"previd">>, SMID},
                     {<<"h">>, integer_to_binary(Handled)}]}.
 
-handover_session(SD, From)->
-    ?LOG_INFO(#{what => auth_success, text => "before true"}),
+handover_session(SD, From)-> 
     true = SD#state.stream_mgmt,
-    ?LOG_INFO(#{what => auth_success, text => "before true1"}),
-
-    Acc = mongoose_acc:new(
-        #{location => ?LOCATION, lserver => SD#state.server, element => undefined}),
-    ?LOG_INFO(#{what => auth_success, text => "before true 2"}),
-
+    Acc = new_acc(SD, #{location => ?LOCATION, element => undefined}),
     ejabberd_sm:close_session(Acc,
                               SD#state.sid,
                               SD#state.jid,
-                              resumed),
-    ?LOG_INFO(#{what => auth_success, text => "before true 3"}),
-
+                              resumed), 
     %the actual handover to be done on termination
     {stop, {handover_session, From}, SD}.
 
@@ -3295,7 +3267,8 @@ handle_sasl_success(State, Creds) ->
                 c2s_state => NewState}),
     {wait_for_stream, NewState}.
 
-handle_sasl_step(#state{server = Server, socket = Sock} = State, StepRes) ->
+handle_sasl_step(#state{host_type = HostType, server = Server, socket = Sock} = State,
+                 StepRes) ->
     case StepRes of
         {ok, Creds} ->
             handle_sasl_success(State, Creds);
@@ -3309,26 +3282,25 @@ handle_sasl_step(#state{server = Server, socket = Sock} = State, StepRes) ->
                         text => <<"Failed SASL authentication">>,
                         user => Username, server => Server,
                         ip => IP, c2s_state => State}),
-            mongoose_hooks:auth_failed(Server, Username),
+            mongoose_hooks:auth_failed(HostType, Server, Username),
             send_element_from_server_jid(State, sasl_failure_stanza(Error)),
             {wait_for_feature_before_auth, State};
         {error, Error} ->
-            mongoose_hooks:auth_failed(Server, unknown),
+            mongoose_hooks:auth_failed(HostType, Server, unknown),
             send_element_from_server_jid(State, sasl_failure_stanza(Error)),
             {wait_for_feature_before_auth, State}
     end.
 
-user_allowed(JID, #state{server = Server, access = Access}) ->
+user_allowed(JID, #state{host_type = HostType, server = Server, access = Access}) ->
     case acl:match_rule(Server, Access, JID)  of
         allow ->
-            open_session_allowed_hook(Server, JID);
+            open_session_allowed_hook(HostType, JID);
         deny ->
             false
     end.
 
-open_session_allowed_hook(Server, JID) ->
-    allow == mongoose_hooks:session_opening_allowed_for_user(Server,
-                                                             allow, JID).
+open_session_allowed_hook(HostType, JID) ->
+    allow == mongoose_hooks:session_opening_allowed_for_user(HostType, JID).
 
 terminate_when_tls_required_but_not_enabled(true, false, StateData, _El) ->
     Lang = StateData#state.lang,
@@ -3341,10 +3313,9 @@ terminate_when_tls_required_but_not_enabled(_, _, StateData, El) ->
 %% @doc This function is executed when c2s receives a stanza from TCP connection.
 -spec element_to_origin_accum(jlib:xmlel(), StateData :: state()) ->
     mongoose_acc:t().
-element_to_origin_accum(El, #state{sid = SID, jid = JID, server = Server}) ->
+element_to_origin_accum(El, StateData = #state{sid = SID, jid = JID}) ->
     BaseParams = #{
       location => ?LOCATION,
-      lserver => Server,
       element => El,
       from_jid => JID
      },
@@ -3353,7 +3324,7 @@ element_to_origin_accum(El, #state{sid = SID, jid = JID, server = Server}) ->
         undefined -> BaseParams#{ to_jid => jid:to_bare(JID) };
         _ToBin -> BaseParams
     end,
-    Acc = mongoose_acc:new(Params),
+    Acc = new_acc(StateData, Params),
     Acc1 = mongoose_acc:set_permanent(c2s, origin_sid, SID, Acc),
     mongoose_acc:set_permanent(c2s, origin_jid, JID, Acc1).
 
@@ -3386,3 +3357,7 @@ update_stanza(From, To, #xmlel{} = Element, Acc) ->
 strip_c2s_fields(Acc) ->
     %% TODO: verify if we really need to strip down these 2 fields
     mongoose_acc:delete_many(c2s, [origin_jid, origin_sid], Acc).
+
+-spec new_acc(state(), mongoose_acc:new_acc_params()) -> mongoose_acc:t().
+new_acc(#state{host_type = HostType, server = LServer}, Params) ->
+    mongoose_acc:new(Params#{host_type => HostType, lserver => LServer}).

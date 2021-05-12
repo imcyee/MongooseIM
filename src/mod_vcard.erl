@@ -175,9 +175,9 @@ get_results_limit(LServer) ->
             ?JUD_MATCHES
     end.
 
--spec default_host() -> binary().
+-spec default_host() -> mongoose_subdomain_utils:subdomain_pattern().
 default_host() ->
-    <<"vjud.@HOST@">>.
+    mongoose_subdomain_utils:make_subdomain_pattern(<<"vjud.@HOST@">>).
 
 %%--------------------------------------------------------------------
 %% gen_mod callbacks
@@ -212,7 +212,8 @@ config_spec() ->
     #section{
        items = #{<<"iqdisc">> => mongoose_config_spec:iqdisc(),
                  <<"host">> => #option{type = string,
-                                       validate = domain_template},
+                                       validate = subdomain_template,
+                                       process = fun mongoose_subdomain_utils:make_subdomain_pattern/1},
                  <<"search">> => #option{type = boolean},
                  <<"backend">> => #option{type = atom,
                                           validate = {module, mod_vcard}},
@@ -572,7 +573,7 @@ do_route(_VHost, From, To, Acc, #iq{type = set,
 do_route(VHost, From, To, _Acc, #iq{type = get,
                                        xmlns = ?NS_DISCO_INFO,
                                        lang = Lang} = IQ) ->
-    Info = mongoose_hooks:disco_info(VHost, [], ?MODULE, <<"">>, <<"">>),
+    Info = mongoose_hooks:disco_info(VHost, ?MODULE, <<"">>, <<"">>),
     NameTxt = translate:translate(Lang, <<"vCard User Search">>),
     ResIQ = IQ#iq{type = result,
                   sub_el = [#xmlel{name = <<"query">>,

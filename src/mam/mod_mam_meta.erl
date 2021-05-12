@@ -56,6 +56,8 @@ config_items() ->
       <<"no_stanzaid_element">> => #option{type = boolean},
       <<"is_archivable_message">> => #option{type = atom,
                                              validate = module},
+      <<"send_message">> => #option{type = atom,
+                                    validate = module},
       <<"archive_chat_markers">> => #option{type = boolean},
       <<"message_retraction">> => #option{type = boolean},
 
@@ -95,7 +97,8 @@ pm_config_items() ->
 
 muc_config_items() ->
     #{<<"host">> => #option{type = string,
-                            validate = domain_template}}.
+                            validate = subdomain_template,
+                            process = fun mongoose_subdomain_utils:make_subdomain_pattern/1}}.
 
 riak_config_spec() ->
     #section{
@@ -202,6 +205,7 @@ valid_core_mod_opts(mod_mam_muc) ->
 
 common_opts() ->
     [is_archivable_message,
+     send_message,
      archive_chat_markers,
      extra_lookup_params,
      full_text_search,

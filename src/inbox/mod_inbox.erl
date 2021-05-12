@@ -26,7 +26,8 @@
          user_send_packet/4,
          filter_packet/1,
          inbox_unread_count/2,
-         remove_user/3
+         remove_user/3,
+         remove_domain/3
         ]).
 
 -export([config_metrics/1]).
@@ -95,6 +96,9 @@
                       Params :: entry_properties(),
                       Ret :: entry_properties() | {error, binary()}.
 
+-callback remove_domain(HostType :: mongooseim:host_type(),
+                        LServer :: jid:lserver()) -> ok.
+
 -type get_inbox_params() :: #{
         start => integer(),
         'end' => integer(),
@@ -131,7 +135,7 @@ process_entry(#{remote_jid := RemJID,
 %%--------------------------------------------------------------------
 %% gen_mod callbacks
 %%--------------------------------------------------------------------
--spec deps(jid:lserver(), list()) -> list().
+-spec deps(jid:lserver(), list()) -> gen_mod:deps_list().
 deps(_Host, Opts) ->
     groupchat_deps(Opts).
 
@@ -267,6 +271,13 @@ remove_user(Acc, User, Server) ->
     mod_inbox_utils:clear_inbox(User, Server),
     Acc.
 
+-spec remove_domain(mongoose_hooks:simple_acc(),
+                    mongooseim:host_type(), jid:lserver()) ->
+    mongoose_hooks:simple_acc().
+remove_domain(Acc, HostType, Domain) ->
+    mod_inbox_backend:remove_domain(HostType, Domain),
+    Acc.
+
 -spec maybe_process_message(Acc :: mongoose_acc:t(),
                             Host :: host(),
                             From :: jid:jid(),
@@ -277,8 +288,7 @@ maybe_process_message(Acc, Host, From, To, Msg, Dir) ->
     case should_be_stored_in_inbox(Msg) andalso inbox_owner_exists(From, To, Dir) of
         true ->
             Type = get_message_type(Msg),
-            TS = mongoose_acc:timestamp(Acc),
-            maybe_process_acceptable_message(Host, From, To, Msg, TS, Dir, Type);
+            maybe_process_acceptable_message(Host, From, To, Msg, Acc, Dir, Type);
         false ->
             ok
     end.
@@ -291,27 +301,27 @@ inbox_owner_exists(From, _To, outgoing) ->
 inbox_owner_exists(_From, To, incoming) ->
     ejabberd_users:does_user_exist(To).
 
-maybe_process_acceptable_message(Host, From, To, Msg, TS, Dir, one2one) ->
-            process_message(Host, From, To, Msg, TS, Dir, one2one);
-maybe_process_acceptable_message(Host, From, To, Msg, TS, Dir, groupchat) ->
+maybe_process_acceptable_message(Host, From, To, Msg, Acc, Dir, one2one) ->
+            process_message(Host, From, To, Msg, Acc, Dir, one2one);
+maybe_process_acceptable_message(Host, From, To, Msg, Acc, Dir, groupchat) ->
             muclight_enabled(Host) andalso
-            process_message(Host, From, To, Msg, TS, Dir, groupchat).
+            process_message(Host, From, To, Msg, Acc, Dir, groupchat).
 
 -spec process_message(Host :: host(),
                       From :: jid:jid(),
                       To :: jid:jid(),
                       Message :: exml:element(),
-                      TS :: integer(),
+                      Acc :: mongoose_acc:t(),
                       Dir :: outgoing | incoming,
                       Type :: one2one | groupchat) -> ok | {ok, integer()}.
-process_message(Host, From, To, Message, TS, outgoing, one2one) ->
-    mod_inbox_one2one:handle_outgoing_message(Host, From, To, Message, TS);
-process_message(Host, From, To, Message, TS, incoming, one2one) ->
-    mod_inbox_one2one:handle_incoming_message(Host, From, To, Message, TS);
-process_message(Host, From, To, Message, TS, outgoing, groupchat) ->
-    mod_inbox_muclight:handle_outgoing_message(Host, From, To, Message, TS);
-process_message(Host, From, To, Message, TS, incoming, groupchat) ->
-    mod_inbox_muclight:handle_incoming_message(Host, From, To, Message, TS);
+process_message(Host, From, To, Message, Acc, outgoing, one2one) ->
+    mod_inbox_one2one:handle_outgoing_message(Host, From, To, Message, Acc);
+process_message(Host, From, To, Message, Acc, incoming, one2one) ->
+    mod_inbox_one2one:handle_incoming_message(Host, From, To, Message, Acc);
+process_message(Host, From, To, Message, Acc, outgoing, groupchat) ->
+    mod_inbox_muclight:handle_outgoing_message(Host, From, To, Message, Acc);
+process_message(Host, From, To, Message, Acc, incoming, groupchat) ->
+    mod_inbox_muclight:handle_incoming_message(Host, From, To, Message, Acc);
 process_message(Host, From, To, Message, _TS, Dir, Type) ->
     ?LOG_WARNING(#{what => inbox_unknown_message,
                    text => <<"Unknown message was not written into inbox">>,
@@ -548,6 +558,7 @@ get_inbox_unread(undefined, Acc, To) ->
 hooks(Host) ->
     [
      {remove_user, Host, ?MODULE, remove_user, 50},
+     {remove_domain, Host, ?MODULE, remove_domain, 50},
      {user_send_packet, Host, ?MODULE, user_send_packet, 70},
      {filter_local_packet, Host, ?MODULE, filter_packet, 90},
      {inbox_unread_count, Host, ?MODULE, inbox_unread_count, 80},
